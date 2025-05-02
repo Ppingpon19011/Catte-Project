@@ -34,17 +34,31 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  image_picker: ^0.8.5
-  intl: ^0.17.0
+  image_picker: ^1.1.2
+  intl: ^0.20.2
   sqflite: ^2.0.2
   path: ^1.8.0
   path_provider: ^2.0.9
-  uuid: ^3.0.6
+  uuid: ^4.5.1
   shared_preferences: ^2.2.2
+  tflite_flutter: ^0.11.0
+  image: ^4.0.17  # สำหรับจัดการรูปภาพ
+  fl_chart: ^0.71.0      # เพิ่มสำหรับการสร้างกราฟแบบ interactive
+  permission_handler: ^12.0.0+1 # เพิ่มสำหรับจัดการสิทธิ์การเข้าถึง
+  camera: ^0.11.1      # เพิ่มสำหรับควบคุมกล้องโดยตรง
+#  gallery_saver: ^2.3.2  # เพิ่มสำหรับบันทึกภาพลงแกลเลอรี่
+  share_plus: ^10.1.4     # เพิ่มสำหรับแชร์ข้อมูล
+  flutter_local_notifications: ^18.0.1 # เพิ่มสำหรับการแจ้งเตือน
+  provider: ^6.0.5       # เพิ่มสำหรับจัดการ state
+  fluttertoast: ^8.2.2   # เพิ่มสำหรับแสดงข้อความ toast
+#  onnxruntime: ^1.4.1
+#  ultralytics_yolo: any
+#  flutter_onnx_runtime: ^0.0.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.3  # เพิ่มสำหรับการสร้างไอคอนแอปพลิเคชัน
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -52,6 +66,12 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+flutter_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/app_icon.png"
+  min_sdk_android: 21
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -71,6 +91,7 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
+    - assets/models/best_float32.tflite  # เพิ่มโฟลเดอร์สำหรับเก็บโมเดล ML
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

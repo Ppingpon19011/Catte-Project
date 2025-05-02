@@ -3,6 +3,7 @@ import 'dart:io';
 import '../models/cattle.dart';
 import 'weight_estimate_screen.dart';
 import 'edit_cattle_screen.dart';
+import 'growth_chart_screen.dart'; // เพิ่ม import หน้ากราฟการเจริญเติบโต
 import '../database/database_helper.dart';
 import '../widgets/detail_row.dart';
 import '../widgets/unit_display_widget.dart';
@@ -43,12 +44,14 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
       }
     } catch (e) {
       print('Error refreshing cattle data: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('เกิดข้อผิดพลาดในการโหลดข้อมูล: $e'),
-          backgroundColor: AppTheme.errorColor,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการโหลดข้อมูล: $e'),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -130,12 +133,14 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
       });
       
       // แสดงข้อความแจ้งเตือน
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('อัปเดตข้อมูลโคเรียบร้อยแล้ว'),
-          backgroundColor: AppTheme.successColor,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('อัปเดตข้อมูลโคเรียบร้อยแล้ว'),
+            backgroundColor: AppTheme.successColor,
+          ),
+        );
+      }
     }
   }
   
@@ -173,28 +178,68 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
         await _dbHelper.deleteCattle(_cattle.id);
         
         // แสดงข้อความแจ้งเตือน
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ลบข้อมูลโคเรียบร้อยแล้ว'),
-            backgroundColor: AppTheme.successColor,
-          ),
-        );
-        
-        // กลับไปยังหน้ารายการโค
-        Navigator.pop(context, true); // ส่ง true กลับไปบอกว่ามีการลบโค
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('ลบข้อมูลโคเรียบร้อยแล้ว'),
+              backgroundColor: AppTheme.successColor,
+            ),
+          );
+          
+          // กลับไปยังหน้ารายการโค
+          Navigator.pop(context, true); // ส่ง true กลับไปบอกว่ามีการลบโค
+        }
       } catch (e) {
         setState(() {
           _isLoading = false;
         });
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('เกิดข้อผิดพลาด: $e'),
-            backgroundColor: AppTheme.errorColor,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('เกิดข้อผิดพลาด: $e'),
+              backgroundColor: AppTheme.errorColor,
+            ),
+          );
+        }
       }
     }
+  }
+
+// แก้ไขฟังก์ชัน _navigateToWeightEstimateScreen
+Future<void> _navigateToWeightEstimateScreen() async {
+  try {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WeightEstimateScreen(cattle: _cattle), // ตรวจสอบชื่อคลาส
+      ),
+    );
+    
+    if (result == true) {
+      await _refreshCattleData();
+    }
+  } catch (e) {
+    print('Error navigating to weight estimate screen: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('เกิดข้อผิดพลาดในการเปิดหน้าประมาณน้ำหนัก: $e'),
+          backgroundColor: AppTheme.errorColor,
+        ),
+      );
+    }
+  }
+}
+
+  // ฟังก์ชันนำทางไปหน้ากราฟการเจริญเติบโต
+  void _navigateToGrowthChartScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GrowthChartScreen(cattle: _cattle),
+      ),
+    );
   }
 
   @override
@@ -206,9 +251,7 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.edit),
-            onPressed: () {
-              _navigateToEditScreen();
-            },
+            onPressed: _navigateToEditScreen,
           ),
         ],
       ),
@@ -380,18 +423,7 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
                           
                           SizedBox(height: 32),
                           ElevatedButton.icon(
-                            onPressed: () async {
-                              final result = await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => WeightEstimateScreen(cattle: _cattle),
-                                ),
-                              );
-                              
-                              if (result == true) {
-                                await _refreshCattleData();
-                              }
-                            },
+                            onPressed: _navigateToWeightEstimateScreen, // ใช้ฟังก์ชันที่แก้ไขแล้ว
                             icon: Icon(Icons.camera_alt),
                             label: Text('ประมาณน้ำหนักด้วยภาพถ่าย'),
                             style: ElevatedButton.styleFrom(
@@ -424,14 +456,7 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
                           ),
                           SizedBox(height: 16),
                           OutlinedButton.icon(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('ฟีเจอร์นี้อยู่ระหว่างการพัฒนา'),
-                                  backgroundColor: AppTheme.primaryColor,
-                                ),
-                              );
-                            },
+                            onPressed: _navigateToGrowthChartScreen, // ใช้ฟังก์ชันที่แก้ไขแล้ว
                             icon: Icon(Icons.trending_up),
                             label: Text('กราฟการเจริญเติบโต'),
                             style: OutlinedButton.styleFrom(
@@ -447,7 +472,7 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
                           Divider(color: AppTheme.dividerColor),
                           SizedBox(height: 16),
                           OutlinedButton.icon(
-                            onPressed: _deleteCattle,
+                            onPressed: _deleteCattle, // ใช้ฟังก์ชันที่มีอยู่
                             icon: Icon(Icons.delete_forever, color: AppTheme.errorColor),
                             label: Text('ลบโปรไฟล์โค', style: TextStyle(color: AppTheme.errorColor)),
                             style: OutlinedButton.styleFrom(

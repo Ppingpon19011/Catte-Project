@@ -218,6 +218,16 @@ class DatabaseHelper {
     return null;
   }
 
+  // ลบบันทึกน้ำหนัก
+  Future<int> deleteWeightRecord(String recordId) async {
+    Database db = await database;
+    return await db.delete(
+      tableNameWeightRecord,
+      where: '$columnRecordId = ?',
+      whereArgs: [recordId],
+    );
+  }
+
   // แปลงข้อมูลจาก Map เป็น Cattle object
   Cattle _cattleFromMap(Map<String, dynamic> map) {
     return Cattle(
