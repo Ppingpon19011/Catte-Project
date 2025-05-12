@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'dart:io';
 import '../models/cattle.dart';
 import 'weight_estimate_screen.dart';
@@ -285,11 +286,10 @@ Future<void> _navigateToWeightEstimateScreen() async {
                                 ),
                                 child: Row(
                                   children: [
-                                    SvgPicture.asset(
-                                      'assets/icons/cow_head.svg',
-                                      width: 14,
-                                      height: 14,
-                                      color: AppTheme.textSecondaryColor,
+                                    FaIcon(
+                                      FontAwesomeIcons.cow,
+                                      size: 14,
+                                      color: AppTheme.primaryColor,
                                     ),
                                     SizedBox(width: 6),
                                     Text(

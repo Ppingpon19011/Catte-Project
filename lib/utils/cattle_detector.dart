@@ -11,7 +11,7 @@ import '../utils/enhanced_measurement_painter.dart';
 // เป็นคลาสที่ใช้ในการตรวจจับโคด้วย ML Model
 class CattleDetector {
   // แก้ไขชื่อไฟล์ให้ตรงกับที่กำหนดใน pubspec.yaml
-  static const String MODEL_FILE_NAME = 'best_float32(5).tflite';
+  static const String MODEL_FILE_NAME = 'best_model_float32.tflite';
   static const int INPUT_SIZE = 1280; // ขนาด input ของโมเดล YOLOv8
   
   Interpreter? _interpreter;

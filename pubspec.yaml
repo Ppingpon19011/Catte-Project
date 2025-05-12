@@ -53,6 +53,7 @@ dependencies:
   fluttertoast: ^8.2.2   # เพิ่มสำหรับแสดงข้อความ toast
   vector_math: ^2.1.4
   flutter_svg: ^1.1.6
+  font_awesome_flutter: ^10.1.0
 #  onnxruntime: ^1.4.1
 #  ultralytics_yolo: any
 #  flutter_onnx_runtime: ^0.0.1
@@ -95,7 +96,7 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
-    - assets/models/best_float32(5).tflite  # เพิ่มโฟลเดอร์สำหรับเก็บโมเดล ML
+    - assets/models/best_model_float32.tflite  # เพิ่มโฟลเดอร์สำหรับเก็บโมเดล ML
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'dart:io';
 import '../models/cattle.dart';
 import 'cattle_detail_screen.dart';
@@ -137,11 +138,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SvgPicture.asset(
-                        'assets/icons/cow_head.svg',
-                        width: 14,
-                        height: 14,
-                        color: AppTheme.textSecondaryColor,
+                      FaIcon(
+                        FontAwesomeIcons.cow,
+                        size: 14,
+                        color: AppTheme.primaryColor,
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -411,11 +411,10 @@ class CattleListItem extends StatelessWidget {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            SvgPicture.asset(
-                              'assets/icons/cow_head.svg',
-                              width: 14,
-                              height: 14,
-                              color: AppTheme.textSecondaryColor,
+                            FaIcon(
+                              FontAwesomeIcons.cow,
+                              size: 14,
+                              color: AppTheme.primaryColor,
                             ),
                             const SizedBox(width: 4),
                             Text(
@@ -497,12 +496,11 @@ class CattleListItem extends StatelessWidget {
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
                     color: AppTheme.cardColor,
-                    child: SvgPicture.asset(
-                      'assets/icons/cow_head.svg',
-                      width: 14,
-                      height: 14,
-                      color: AppTheme.textSecondaryColor,
-                    )
+                      child: FaIcon(
+                      FontAwesomeIcons.cow,
+                      size: 14,
+                      color: AppTheme.primaryColor,
+                    ),
                   );
                 },
               ),
