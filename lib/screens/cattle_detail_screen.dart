@@ -8,6 +8,7 @@ import '../database/database_helper.dart';
 import '../widgets/detail_row.dart';
 import '../widgets/unit_display_widget.dart';
 import '../utils/theme_config.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class CattleDetailScreen extends StatefulWidget {
   final Cattle cattle;
@@ -284,10 +285,11 @@ Future<void> _navigateToWeightEstimateScreen() async {
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(
-                                      Icons.pets,
-                                      size: 18,
-                                      color: AppTheme.primaryColor,
+                                    SvgPicture.asset(
+                                      'assets/icons/cow_head.svg',
+                                      width: 14,
+                                      height: 14,
+                                      color: AppTheme.textSecondaryColor,
                                     ),
                                     SizedBox(width: 6),
                                     Text(
@@ -434,26 +436,6 @@ Future<void> _navigateToWeightEstimateScreen() async {
                             ),
                           ),
                           
-                          SizedBox(height: 16),
-                          // ปุ่มดูรายละเอียดเพิ่มเติม
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('ฟีเจอร์นี้อยู่ระหว่างการพัฒนา'),
-                                  backgroundColor: AppTheme.primaryColor,
-                                ),
-                              );
-                            },
-                            icon: Icon(Icons.medical_services),
-                            label: Text('ข้อมูลสุขภาพและการรักษา'),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: Size(double.infinity, 50),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10.0),
-                              ),
-                            ),
-                          ),
                           SizedBox(height: 16),
                           OutlinedButton.icon(
                             onPressed: _navigateToGrowthChartScreen, // ใช้ฟังก์ชันที่แก้ไขแล้ว

@@ -5,40 +5,36 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 class WeightCalculator {
-  // ค่าคงที่สำหรับแต่ละสายพันธุ์ในสูตร Schaeffer
-  static const Map<String, double> breedConstants = {
-    'Beefmaster': 650.0,
-    'Brahman': 660.0,
-    'Charolais': 630.0,
-    'Angus': 645.0,
-    'Hereford': 655.0,
-    'Simmental': 640.0,
-    'Limousin': 635.0,
-    'Holstein': 640.0,
-    'Jersey': 670.0,
-    'Sahiwal': 665.0,
-    'พื้นเมืองไทย': 680.0,
-    'ลูกผสมบราห์มัน': 665.0,
-    'ลูกผสมชาร์โรเลส์': 640.0,
-    'อื่นๆ': 650.0,
-  };
-
-  // สูตรคำนวณน้ำหนักโคจากรอบอกและความยาวลำตัว (Schaeffer's formula)
-  // น้ำหนัก (กก.) = (รอบอก (ซม.)^2 × ความยาว (ซม.)) / K
-  static double calculateWeightByBreed(double heartGirth, double bodyLength, String breed) {
-    // หาค่า K จากสายพันธุ์
-    double k = breedConstants[breed] ?? 650.0; // ใช้ค่าเริ่มต้นถ้าไม่พบสายพันธุ์
-    
-    // ตรวจสอบเพื่อป้องกันค่าติดลบหรือเป็นศูนย์
-    if (heartGirth <= 0 || bodyLength <= 0) {
+  // ความยาวมาตรฐานของจุดอ้างอิง (เซนติเมตร)
+  static const double REFERENCE_MARK_LENGTH_CM = 100.0; // 1 เมตร
+  
+  // สูตรคำนวณน้ำหนักโค (น้ำหนักเป็นปอนด์)
+  // weight (pounds) = ((heart girth in inches)^2 * body length in inches) / 300
+  static double calculateWeight(double heartGirthInches, double bodyLengthInches) {
+    if (heartGirthInches <= 0 || bodyLengthInches <= 0) {
       return 0.0;
     }
     
-    // คำนวณตามสูตร Schaeffer
-    return (pow(heartGirth, 2) * bodyLength) / k;
+    // คำนวณตามสูตร
+    double weightInPounds = (pow(heartGirthInches, 2) * bodyLengthInches) / 300;
+    
+    // แปลงจากปอนด์เป็นกิโลกรัม
+    double weightInKg = weightInPounds * 0.453592;
+    
+    return weightInKg;
+  }
+  
+  // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว
+  static double cmToInches(double cm) {
+    return cm * 0.393701;
+  }
+  
+  // แปลงหน่วยจากนิ้วเป็นเซนติเมตร
+  static double inchesToCm(double inches) {
+    return inches * 2.54;
   }
 
-  // คำนวณจากเพศและอายุเพิ่มเติม
+  // ปรับค่าน้ำหนักตามเพศและอายุ
   static double adjustWeightByAgeAndGender(double calculatedWeight, String gender, int ageMonths) {
     double adjustedWeight = calculatedWeight;
     
@@ -48,7 +44,7 @@ class WeightCalculator {
       adjustedWeight *= 1.05;
     }
     
-    // ปรับค่าตามอายุ (อายุน้อยมีความคลาดเคลื่อนสูงกว่า)
+    // ปรับค่าตามอายุ
     if (ageMonths < 12) {
       adjustedWeight *= 0.98; // ปรับลง 2% สำหรับลูกโค
     } else if (ageMonths > 36) {
@@ -56,83 +52,6 @@ class WeightCalculator {
     }
     
     return adjustedWeight;
-  }
-
-  // จำลองการประมาณจากภาพถ่าย (ในระบบจริงควรใช้ ML model)
-  static Future<Map<String, dynamic>> estimateFromImage(File imageFile, String breed, String gender, int ageMonths) async {
-    try {
-      // จำลองการวัดสัดส่วนจากภาพ
-      Map<String, double> dimensions = await estimateProportionsFromImage(imageFile);
-      
-      // คำนวณน้ำหนักจากสัดส่วน
-      double heartGirth = dimensions['heartGirth'] ?? 0.0;
-      double bodyLength = dimensions['bodyLength'] ?? 0.0;
-      
-      // คำนวณน้ำหนักโดยใช้สูตร Schaeffer
-      double weight = calculateWeightByBreed(heartGirth, bodyLength, breed);
-      
-      // ปรับค่าตามเพศและอายุ
-      double adjustedWeight = adjustWeightByAgeAndGender(weight, gender, ageMonths);
-      
-      return {
-        'success': true,
-        'heartGirth': heartGirth,
-        'bodyLength': bodyLength,
-        'rawWeight': weight,
-        'adjustedWeight': adjustedWeight,
-        'confidence': 0.85, // ระดับความเชื่อมั่น (ในระบบจริงควรคำนวณจากโมเดล)
-      };
-    } catch (e) {
-      print('เกิดข้อผิดพลาดในการประมาณน้ำหนัก: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-      };
-    }
-  }
-
-  // จำลองการวัดสัดส่วนจากภาพ
-  // ในระบบจริงควรใช้ Computer Vision หรือ ML model
-  static Future<Map<String, double>> estimateProportionsFromImage(File imageFile) async {
-    // ในระบบจริง นี่จะส่งภาพไปยัง ML model แล้วได้ผลลัพธ์กลับมา
-    // แต่ในตัวอย่างนี้ เราจะจำลองการวัดขนาดจากภาพ
-    try {
-      // ดึงขนาดภาพจริง
-      final bytes = await imageFile.readAsBytes();
-      final image = img.decodeImage(bytes);
-      final imageWidth = image?.width ?? 0;
-      final imageHeight = image?.height ?? 0;
-      
-      // สร้าง Random เพื่อจำลองความแปรปรวน
-      final Random random = Random();
-      
-      // จำลองการวัดรอบอก (ในระบบจริงจะได้จากการวิเคราะห์ภาพ)
-      // สมมติว่ารอบอกมีค่าระหว่าง 150-200 ซม. (แปรผันตามขนาดภาพ)
-      double baseHeartGirth = 150 + (imageHeight / 1000 * 50);
-      double heartGirth = baseHeartGirth + (random.nextDouble() * 20 - 10);
-      
-      // จำลองการวัดความยาวลำตัว (ในระบบจริงจะได้จากการวิเคราะห์ภาพ)
-      // สมมติว่าความยาวมีค่าระหว่าง 120-180 ซม. (แปรผันตามขนาดภาพ)
-      double baseBodyLength = 120 + (imageWidth / 1000 * 60);
-      double bodyLength = baseBodyLength + (random.nextDouble() * 20 - 10);
-      
-      // จำลองความสูง
-      double height = 120 + (random.nextDouble() * 30);
-      
-      return {
-        'heartGirth': heartGirth,
-        'bodyLength': bodyLength,
-        'height': height,
-      };
-    } catch (e) {
-      print('เกิดข้อผิดพลาดในการวัดสัดส่วน: $e');
-      // ส่งค่าเริ่มต้นหากเกิดข้อผิดพลาด
-      return {
-        'heartGirth': 170.0,
-        'bodyLength': 150.0,
-        'height': 130.0,
-      };
-    }
   }
 
   // คำนวณอายุโคเป็นเดือนจากวันเกิด
@@ -146,5 +65,184 @@ class WeightCalculator {
   static double calculateADG(double startWeight, double endWeight, int daysBetween) {
     if (daysBetween <= 0) return 0;
     return (endWeight - startWeight) / daysBetween;
+  }
+  
+  // คำนวณน้ำหนักจากขนาดของโค
+  static Map<String, dynamic> calculateWeightFromMeasurements(
+    double heartGirthCm, 
+    double bodyLengthCm, 
+    String breed, 
+    String gender, 
+    int ageMonths
+  ) {
+    try {
+      // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว
+      double heartGirthInches = cmToInches(heartGirthCm);
+      double bodyLengthInches = cmToInches(bodyLengthCm);
+      
+      // คำนวณน้ำหนักด้วยสูตรหลัก
+      double weightInKg = calculateWeight(heartGirthInches, bodyLengthInches);
+      
+      // ปรับค่าตามเพศและอายุ
+      double adjustedWeight = adjustWeightByAgeAndGender(weightInKg, gender, ageMonths);
+      
+      return {
+        'success': true,
+        'heartGirthCm': heartGirthCm,
+        'heartGirthInches': heartGirthInches,
+        'bodyLengthCm': bodyLengthCm,
+        'bodyLengthInches': bodyLengthInches,
+        'rawWeight': weightInKg,
+        'adjustedWeight': adjustedWeight,
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+  
+  // คำนวณมาตราส่วนจากจุดอ้างอิง
+  static double calculateScaleFromReference(double referenceMarkPixels) {
+    if (referenceMarkPixels <= 0) return 0.0;
+    return REFERENCE_MARK_LENGTH_CM / referenceMarkPixels;
+  }
+  
+  // จำลองการประมาณจากภาพถ่าย (ในระบบจริงควรใช้ ML model)
+  static Future<Map<String, dynamic>> estimateFromImage(
+      File imageFile, String breed, String gender, int ageMonths) async {
+    try {
+      // อ่านข้อมูลภาพ
+      final imageBytes = await imageFile.readAsBytes();
+      final image = img.decodeImage(imageBytes);
+      
+      if (image == null) {
+        return {
+          'success': false,
+          'error': 'ไม่สามารถอ่านรูปภาพได้',
+        };
+      }
+      
+      // สร้าง Random เพื่อจำลองความแปรปรวน
+      final Random random = Random();
+      
+      // ข้อความแจ้งเตือนว่าค่านี้เป็นค่าสมมติ
+      print('หมายเหตุ: ค่านี้เป็นค่าจำลอง ควรใช้การวัดด้วยตนเองเพื่อความแม่นยำ');
+      
+      // จำลองการวัดรอบอก
+      double baseHeartGirth = 180 + (random.nextDouble() * 20 - 10);
+      
+      // จำลองการวัดความยาวลำตัว
+      double baseBodyLength = 150 + (random.nextDouble() * 20 - 10);
+      
+      // จำลองความสูง
+      double height = 130 + (random.nextDouble() * 20 - 10);
+      
+      // แปลงเป็นนิ้ว
+      double heartGirthInches = cmToInches(baseHeartGirth);
+      double bodyLengthInches = cmToInches(baseBodyLength);
+      
+      // คำนวณน้ำหนัก
+      double weightInKg = calculateWeight(heartGirthInches, bodyLengthInches);
+      
+      // ปรับค่าตามเพศและอายุ
+      double adjustedWeight = adjustWeightByAgeAndGender(weightInKg, gender, ageMonths);
+      
+      return {
+        'success': true,
+        'heartGirth': baseHeartGirth,
+        'bodyLength': baseBodyLength,
+        'height': height,
+        'rawWeight': weightInKg,
+        'adjustedWeight': adjustedWeight,
+        'confidence': 0.6, // ค่าความเชื่อมั่นต่ำเนื่องจากเป็นค่าสมมติ
+        'message': 'ค่านี้เป็นค่าจำลอง ควรใช้การวัดด้วยตนเองเพื่อความแม่นยำ',
+      };
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการประมาณน้ำหนัก: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+  
+  // คำนวณน้ำหนักที่ควรจะเป็นตามอายุและสายพันธุ์
+  static double calculateIdealWeight(String breed, String gender, int ageMonths) {
+    double baseWeight = 0.0;
+    
+    // กำหนดน้ำหนักพื้นฐานตามสายพันธุ์
+    if (breed == 'Brahman' || breed == 'บราห์มัน') {
+      baseWeight = 35 + (ageMonths * 15); // เริ่มที่ 35 กก. และเพิ่ม 15 กก. ต่อเดือน
+    } else if (breed == 'Charolais' || breed == 'ชาร์โรเลส์') {
+      baseWeight = 40 + (ageMonths * 18); // เริ่มที่ 40 กก. และเพิ่ม 18 กก. ต่อเดือน
+    } else if (breed == 'Angus' || breed == 'แองกัส') {
+      baseWeight = 38 + (ageMonths * 17); // เริ่มที่ 38 กก. และเพิ่ม 17 กก. ต่อเดือน
+    } else {
+      baseWeight = 35 + (ageMonths * 14); // ค่าเริ่มต้นสำหรับสายพันธุ์อื่นๆ
+    }
+    
+    // ปรับค่าตามเพศ
+    if (gender == 'เพศผู้') {
+      baseWeight *= 1.1; // เพศผู้หนักกว่าเพศเมียประมาณ 10%
+    }
+    
+    // จำกัดค่าสูงสุดตามอายุ
+    if (ageMonths > 36) {
+      // โคโตเต็มวัย (อายุมากกว่า 3 ปี)
+      double maxWeight = 0.0;
+      
+      if (breed == 'Brahman' || breed == 'บราห์มัน') {
+        maxWeight = (gender == 'เพศผู้') ? 800 : 650;
+      } else if (breed == 'Charolais' || breed == 'ชาร์โรเลส์') {
+        maxWeight = (gender == 'เพศผู้') ? 1000 : 750;
+      } else if (breed == 'Angus' || breed == 'แองกัส') {
+        maxWeight = (gender == 'เพศผู้') ? 900 : 700;
+      } else {
+        maxWeight = (gender == 'เพศผู้') ? 750 : 600;
+      }
+      
+      // ไม่ให้น้ำหนักเกินค่าสูงสุด
+      if (baseWeight > maxWeight) {
+        baseWeight = maxWeight;
+      }
+    }
+    
+    return baseWeight;
+  }
+  
+  // วิเคราะห์ข้อมูลน้ำหนักเทียบกับเกณฑ์
+  static Map<String, dynamic> analyzeWeight(double currentWeight, String breed, String gender, int ageMonths) {
+    double idealWeight = calculateIdealWeight(breed, gender, ageMonths);
+    double weightRatio = currentWeight / idealWeight * 100;
+    
+    String status = "";
+    String recommendation = "";
+    
+    if (weightRatio < 80) {
+      status = "น้ำหนักต่ำกว่าเกณฑ์";
+      recommendation = "ควรเพิ่มปริมาณอาหารและเสริมโภชนาการ";
+    } else if (weightRatio < 90) {
+      status = "น้ำหนักค่อนข้างต่ำ";
+      recommendation = "ควรปรับปรุงโภชนาการเล็กน้อย";
+    } else if (weightRatio <= 110) {
+      status = "น้ำหนักอยู่ในเกณฑ์ปกติ";
+      recommendation = "ดูแลอาหารและสุขภาพตามปกติ";
+    } else if (weightRatio <= 120) {
+      status = "น้ำหนักค่อนข้างสูง";
+      recommendation = "ควรระวังปริมาณอาหารไม่ให้มากเกินไป";
+    } else {
+      status = "น้ำหนักสูงเกินเกณฑ์";
+      recommendation = "ควรปรับลดปริมาณอาหารและเพิ่มการเคลื่อนไหว";
+    }
+    
+    return {
+      'currentWeight': currentWeight,
+      'idealWeight': idealWeight,
+      'weightRatio': weightRatio,
+      'status': status,
+      'recommendation': recommendation,
+    };
   }
 }

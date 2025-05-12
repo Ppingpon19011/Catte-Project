@@ -7,6 +7,7 @@ import '../database/database_helper.dart';
 import '../widgets/unit_display_widget.dart';
 import '../widgets/custom_search_bar.dart';
 import '../utils/theme_config.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -67,24 +68,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final cattle = await _dbHelper.getAllCattle();
-      setState(() {
-        cattleList = cattle;
-        filteredCattleList = cattle; // ตั้งค่าเริ่มต้นให้ filteredCattleList เท่ากับ cattleList
-        _isLoading = false;
-      });
+      if (mounted) {  // ตรวจสอบว่า widget ยังคงอยู่ในต้นไม้ widget หรือไม่
+        setState(() {
+          cattleList = cattle;
+          filteredCattleList = cattle;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Error loading cattle: $e');
-      setState(() {
-        _isLoading = false;
-      });
-      
-      // แสดงข้อความผิดพลาด
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('เกิดข้อผิดพลาดในการโหลดข้อมูล: $e'),
-          backgroundColor: AppTheme.errorColor,
-        ),
-      );
+      if (mounted) {
+        setState(() {
+          cattleList = [];  // กำหนดค่าเริ่มต้นเป็น list ว่าง
+          filteredCattleList = [];
+          _isLoading = false;
+        });
+        
+        // แสดงข้อความผิดพลาด
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการโหลดข้อมูล: $e'),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
     }
   }
 
@@ -130,10 +137,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        _isSearching ? Icons.search_off : Icons.pets,
-                        size: 80,
-                        color: AppTheme.primaryColor.withOpacity(0.4),
+                      SvgPicture.asset(
+                        'assets/icons/cow_head.svg',
+                        width: 14,
+                        height: 14,
+                        color: AppTheme.textSecondaryColor,
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -403,9 +411,10 @@ class CattleListItem extends StatelessWidget {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(
-                              Icons.pets,
-                              size: 14,
+                            SvgPicture.asset(
+                              'assets/icons/cow_head.svg',
+                              width: 14,
+                              height: 14,
                               color: AppTheme.textSecondaryColor,
                             ),
                             const SizedBox(width: 4),
@@ -472,8 +481,8 @@ class CattleListItem extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: AppTheme.primaryColor.withOpacity(0.3),
-          width: 2,
+          color: const Color.fromARGB(255, 255, 204, 0).withOpacity(1),
+          width: 3.5,
         ),
       ),
       child: ClipOval(
@@ -488,11 +497,12 @@ class CattleListItem extends StatelessWidget {
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
                     color: AppTheme.cardColor,
-                    child: Icon(
-                      Icons.pets,
-                      color: AppTheme.primaryColor.withOpacity(0.3),
-                      size: 30,
-                    ),
+                    child: SvgPicture.asset(
+                      'assets/icons/cow_head.svg',
+                      width: 14,
+                      height: 14,
+                      color: AppTheme.textSecondaryColor,
+                    )
                   );
                 },
               ),

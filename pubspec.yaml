@@ -51,6 +51,8 @@ dependencies:
   flutter_local_notifications: ^18.0.1 # เพิ่มสำหรับการแจ้งเตือน
   provider: ^6.0.5       # เพิ่มสำหรับจัดการ state
   fluttertoast: ^8.2.2   # เพิ่มสำหรับแสดงข้อความ toast
+  vector_math: ^2.1.4
+  flutter_svg: ^1.1.6
 #  onnxruntime: ^1.4.1
 #  ultralytics_yolo: any
 #  flutter_onnx_runtime: ^0.0.1
@@ -68,9 +70,11 @@ dev_dependencies:
   flutter_lints: ^5.0.0
 
 flutter_icons:
-  android: "launcher_icon"
+  android: true
   ios: true
-  image_path: "assets/images/app_icon.png"
+  image_path: "assets/images/app_icon.PNG"
+  adaptive_icon_background: "#FFFFFF" # สีพื้นหลังสำหรับ Adaptive Icon (Android 8.0+)
+  adaptive_icon_foreground: "assets/images/app_icon.png" # รูปด้านหน้าสำหรับ Adaptive Icon
   min_sdk_android: 21
 
 # For information on the generic Dart part of this file, see the
@@ -91,7 +95,7 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
-    - assets/models/best_float32.tflite  # เพิ่มโฟลเดอร์สำหรับเก็บโมเดล ML
+    - assets/models/best_float32(5).tflite  # เพิ่มโฟลเดอร์สำหรับเก็บโมเดล ML
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

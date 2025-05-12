@@ -85,131 +85,138 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
-          : Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // หน่วยวัดความยาว
-                  _buildSectionHeader('หน่วยวัดความยาว'),
-                  _buildSettingItem(
-                    title: 'หน่วยวัด',
-                    subtitle: 'สำหรับการวัดขนาดร่างกายโค',
-                    options: _lengthUnits,
-                    selectedValue: _selectedLengthUnit,
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _selectedLengthUnit = value;
-                        });
-                      }
-                    },
-                  ),
-                  SizedBox(height: 24),
-                  
-                  // หน่วยวัดน้ำหนัก
-                  _buildSectionHeader('หน่วยวัดน้ำหนัก'),
-                  _buildSettingItem(
-                    title: 'หน่วยน้ำหนัก',
-                    subtitle: 'สำหรับการแสดงค่าน้ำหนักโค',
-                    options: _weightUnits,
-                    selectedValue: _selectedWeightUnit,
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _selectedWeightUnit = value;
-                        });
-                      }
-                    },
-                  ),
-                  SizedBox(height: 32),
-                  
-                  // ปุ่มบันทึกการตั้งค่า
-                  Container(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        await _saveSettings();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10.0),
-                        ),
-                        padding: EdgeInsets.symmetric(vertical: 15),
+          : SafeArea(
+              child: SingleChildScrollView(  // เพิ่ม SingleChildScrollView ตรงนี้
+                physics: AlwaysScrollableScrollPhysics(),  // ทำให้สามารถเลื่อนได้เสมอแม้เนื้อหาจะไม่เกินหน้าจอ
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // หน่วยวัดความยาว
+                      _buildSectionHeader('หน่วยวัดความยาว'),
+                      _buildSettingItem(
+                        title: 'หน่วยวัด',
+                        subtitle: 'สำหรับการวัดขนาดร่างกายโค',
+                        options: _lengthUnits,
+                        selectedValue: _selectedLengthUnit,
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() {
+                              _selectedLengthUnit = value;
+                            });
+                          }
+                        },
                       ),
-                      child: Text(
-                        'บันทึกการตั้งค่า',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      SizedBox(height: 24),
+                      
+                      // หน่วยวัดน้ำหนัก
+                      _buildSectionHeader('หน่วยวัดน้ำหนัก'),
+                      _buildSettingItem(
+                        title: 'หน่วยน้ำหนัก',
+                        subtitle: 'สำหรับการแสดงค่าน้ำหนักโค',
+                        options: _weightUnits,
+                        selectedValue: _selectedWeightUnit,
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() {
+                              _selectedWeightUnit = value;
+                            });
+                          }
+                        },
                       ),
-                    ),
-                  ),
-                  
-                  SizedBox(height: 16),
-                  // ปุ่มรีเซ็ตเป็นค่าเริ่มต้น
-                  Container(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: () {
-                        setState(() {
-                          _selectedLengthUnit = 'เซนติเมตร';
-                          _selectedWeightUnit = 'กิโลกรัม';
-                        });
-                      },
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10.0),
-                        ),
-                        padding: EdgeInsets.symmetric(vertical: 15),
-                      ),
-                      child: Text(
-                        'รีเซ็ตเป็นค่าเริ่มต้น',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ),
-                  ),
-                  
-                  SizedBox(height: 24),
-                  // ข้อมูลเพิ่มเติม
-                  Container(
-                    padding: EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.dividerColor)
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.info_outline,
-                              color: AppTheme.primaryColor,
-                              size: 20,
+                      SizedBox(height: 32),
+                      
+                      // ปุ่มบันทึกการตั้งค่า
+                      Container(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            await _saveSettings();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10.0),
                             ),
-                            SizedBox(width: 8),
+                            padding: EdgeInsets.symmetric(vertical: 15),
+                          ),
+                          child: Text(
+                            'บันทึกการตั้งค่า',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      
+                      SizedBox(height: 16),
+                      // ปุ่มรีเซ็ตเป็นค่าเริ่มต้น
+                      Container(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () {
+                            setState(() {
+                              _selectedLengthUnit = 'เซนติเมตร';
+                              _selectedWeightUnit = 'กิโลกรัม';
+                            });
+                          },
+                          style: OutlinedButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10.0),
+                            ),
+                            padding: EdgeInsets.symmetric(vertical: 15),
+                          ),
+                          child: Text(
+                            'รีเซ็ตเป็นค่าเริ่มต้น',
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        ),
+                      ),
+                      
+                      SizedBox(height: 24),
+                      // ข้อมูลเพิ่มเติม
+                      Container(
+                        padding: EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.dividerColor)
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: AppTheme.primaryColor,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'หมายเหตุ:',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: AppTheme.primaryDarkColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 8),
                             Text(
-                              'หมายเหตุ:',
+                              'การเปลี่ยนหน่วยวัดจะมีผลกับการแสดงผลในแอปพลิเคชันเท่านั้น ข้อมูลที่บันทึกในระบบยังคงใช้หน่วยมาตรฐาน (เซนติเมตร/กิโลกรัม)',
                               style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: AppTheme.primaryDarkColor,
+                                fontSize: 14,
+                                color: AppTheme.textSecondaryColor,
                               ),
                             ),
                           ],
                         ),
-                        SizedBox(height: 8),
-                        Text(
-                          'การเปลี่ยนหน่วยวัดจะมีผลกับการแสดงผลในแอปพลิเคชันเท่านั้น ข้อมูลที่บันทึกในระบบยังคงใช้หน่วยมาตรฐาน (เซนติเมตร/กิโลกรัม)',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: AppTheme.textSecondaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                      // เพิ่มพื้นที่ว่างด้านล่างเพื่อให้สามารถเลื่อนเห็นเนื้อหาส่วนล่างได้ง่ายขึ้น
+                      SizedBox(height: 20),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
     );
@@ -303,6 +310,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icon(Icons.arrow_drop_down, color: AppTheme.primaryColor),
               dropdownColor: Colors.white,
               style: TextStyle(color: AppTheme.primaryDarkColor, fontSize: 16),
+              isExpanded: true,  // เพิ่ม property นี้เพื่อให้ dropdown ขยายเต็มความกว้าง
               items: options.map((String value) {
                 return DropdownMenuItem<String>(
                   value: value,

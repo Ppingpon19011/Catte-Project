@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -41,7 +42,16 @@ class DatabaseHelper {
   final String columnDate = 'date';
   final String columnNotes = 'notes';
 
+  List<Function()> _changeListeners = [];
+
   DatabaseHelper._internal();
+
+  Future<T> executeTransaction<T>(Future<T> Function(Transaction txn) action) async {
+    final db = await database;
+    return await db.transaction((txn) async {
+      return await action(txn);
+    });
+  }
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -59,6 +69,41 @@ class DatabaseHelper {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+  }
+
+  // เพิ่มฟังก์ชันลงทะเบียน listener
+  void addChangeListener(Function() listener) {
+    _changeListeners.add(listener);
+  }
+
+  // เพิ่มฟังก์ชันลบ listener
+  void removeChangeListener(Function() listener) {
+    _changeListeners.remove(listener);
+  }
+  
+  // เพิ่มฟังก์ชันแจ้งเตือน listeners
+  void _notifyListeners() {
+    for (var listener in _changeListeners) {
+      listener();
+    }
+  }
+
+  Future<String> getSafeImagePath(String originalPath) async {
+    // ถ้าเป็น asset ให้ใช้ path เดิม
+    if (originalPath.startsWith('assets/')) {
+      return originalPath;
+    }
+    
+    // ตรวจสอบว่าไฟล์มีอยู่จริงหรือไม่
+    File imageFile = File(originalPath);
+    bool exists = await imageFile.exists();
+    
+    if (!exists) {
+      // ถ้าไม่มีไฟล์ ให้ใช้ภาพเริ่มต้น
+      return 'assets/images/cattle_default.jpg';
+    }
+    
+    return originalPath;
   }
 
   // ฟังก์ชันสร้างฐานข้อมูลเมื่อติดตั้งแอปครั้งแรก
@@ -142,6 +187,7 @@ class DatabaseHelper {
     };
     
     await db.insert(tableNameCattle, row);
+    _notifyListeners();
     return id;
   }
 
@@ -165,12 +211,15 @@ class DatabaseHelper {
       columnColor: cattle.color, // เพิ่มข้อมูลสีของโค
     };
     
-    return await db.update(
+    final result = await db.update(
       tableNameCattle,
       row,
       where: '$columnId = ?',
       whereArgs: [cattle.id],
     );
+
+    _notifyListeners();
+    return result;
   }
 
   // ลบโค
@@ -185,11 +234,14 @@ class DatabaseHelper {
     );
     
     // ลบข้อมูลโค
-    return await db.delete(
+    final result = await db.delete(
       tableNameCattle,
       where: '$columnId = ?',
       whereArgs: [id],
     );
+    
+    _notifyListeners();
+    return result;
   }
 
   // ดึงข้อมูลโคทั้งหมด
@@ -221,11 +273,14 @@ class DatabaseHelper {
   // ลบบันทึกน้ำหนัก
   Future<int> deleteWeightRecord(String recordId) async {
     Database db = await database;
-    return await db.delete(
+    final result = await db.delete(
       tableNameWeightRecord,
       where: '$columnRecordId = ?',
       whereArgs: [recordId],
     );
+    
+    _notifyListeners();
+    return result;
   }
 
   // แปลงข้อมูลจาก Map เป็น Cattle object
@@ -248,44 +303,94 @@ class DatabaseHelper {
     );
   }
 
+  // เพิ่มเมธอดใหม่
+  Future<List<Map<String, dynamic>>> getRecentWeightRecords(
+    String cattleId, 
+    DateTime fromDate, 
+    double weight, 
+    {double weightTolerance = 0.5} // เพิ่มค่าเริ่มต้นเป็น 0.5 กก.
+  ) async {
+    final db = await database;
+    
+    return await db.query(
+      tableNameWeightRecord,
+      where: '$columnCattleId = ? AND $columnDate >= ? AND $columnWeight BETWEEN ? AND ?',
+      whereArgs: [
+        cattleId, 
+        fromDate.toIso8601String(),
+        weight - weightTolerance,
+        weight + weightTolerance
+      ],
+    );
+  }
+
   // เพิ่มบันทึกน้ำหนัก
   Future<String> insertWeightRecord(WeightRecord record) async {
-    Database db = await database;
+    final db = await database;
     String recordId = const Uuid().v4();
+
+    // ตรวจสอบว่ามีข้อมูลซ้ำหรือไม่
+    final existingRecords = await db.query(
+      tableNameWeightRecord,
+      where: '$columnCattleId = ? AND $columnWeight = ? AND $columnDate LIKE ?',
+      whereArgs: [
+        record.cattleId, 
+        record.weight, 
+        // ตรวจสอบเฉพาะ วัน-เดือน-ปี และชั่วโมง-นาที
+        '${DateFormat('yyyy-MM-dd HH:mm').format(record.date)}%'
+      ],
+    );
     
-    Map<String, dynamic> row = {
-      columnRecordId: recordId,
-      columnCattleId: record.cattleId,
-      columnWeight: record.weight,
-      columnImagePath: record.imagePath,
-      columnDate: record.date.toIso8601String(),
-      columnNotes: record.notes,
-    };
-    
-    await db.insert(tableNameWeightRecord, row);
-    
-    // อัปเดตน้ำหนักล่าสุดของโค
-    Cattle? cattle = await getCattleById(record.cattleId);
-    if (cattle != null) {
-      cattle = Cattle(
-        id: cattle.id,
-        name: cattle.name,
-        breed: cattle.breed,
-        imageUrl: cattle.imageUrl,
-        estimatedWeight: record.weight, // อัปเดตน้ำหนักใหม่
-        lastUpdated: record.date, // อัปเดตวันที่
-        cattleNumber: cattle.cattleNumber,
-        gender: cattle.gender,
-        birthDate: cattle.birthDate,
-        fatherNumber: cattle.fatherNumber,
-        motherNumber: cattle.motherNumber,
-        breeder: cattle.breeder,
-        currentOwner: cattle.currentOwner,
-        color: cattle.color, // รักษาข้อมูลสีของโค
-      );
-      await updateCattle(cattle);
+    // ถ้าพบข้อมูลที่ซ้ำกัน ให้ใช้ข้อมูลเดิม
+    if (existingRecords.isNotEmpty) {
+      return existingRecords.first[columnRecordId] as String;
     }
     
+    await db.transaction((txn) async {
+      try {
+        // สร้างข้อมูล WeightRecord
+        Map<String, dynamic> row = {
+          columnRecordId: recordId,
+          columnCattleId: record.cattleId,
+          columnWeight: record.weight,
+          columnImagePath: record.imagePath,
+          columnDate: record.date.toIso8601String(),
+          columnNotes: record.notes,
+        };
+        
+        // บันทึก WeightRecord - ใช้ txn ไม่ใช่ db
+        await txn.insert(tableNameWeightRecord, row);
+        
+        // ดึงข้อมูลโค - ระวัง! ต้องใช้ txn ไม่ใช่ db
+        // ไม่สามารถใช้ getCattleById ได้โดยตรง เพราะมันจะใช้ db ไม่ใช่ txn
+        List<Map<String, dynamic>> cattleResult = await txn.query(
+          tableNameCattle,
+          where: '$columnId = ?',
+          whereArgs: [record.cattleId],
+        );
+        
+        if (cattleResult.isNotEmpty) {
+          // อัปเดตน้ำหนักล่าสุดของโค
+          Map<String, dynamic> cattleRow = {
+            columnEstimatedWeight: record.weight, // อัปเดตน้ำหนักใหม่
+            columnLastUpdated: record.date.toIso8601String(), // อัปเดตวันที่
+          };
+          
+          // ใช้ txn ไม่ใช่ db
+          await txn.update(
+            tableNameCattle,
+            cattleRow,
+            where: '$columnId = ?',
+            whereArgs: [record.cattleId],
+          );
+        }
+      } catch (e) {
+        print('เกิดข้อผิดพลาดใน transaction: $e');
+        rethrow; // ให้ transaction ทำ rollback โดยอัตโนมัติ
+      }
+    });
+    
+    _notifyListeners();
     return recordId;
   }
 

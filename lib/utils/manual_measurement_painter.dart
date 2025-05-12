@@ -4,13 +4,17 @@ import 'dart:math' as math;
 import '../utils/cattle_detector.dart' as detector;
 
 class ManualMeasurementPainter extends CustomPainter {
-  final ui.Image image;
+  final ui.Image? image;
   final List<detector.DetectedObject> detectedObjects;
   final int selectedIndex;
   final Offset? startPoint;
   final Offset? endPoint;
   final bool isEditing;
   final int currentEditingObject;
+  final double zoomScale;
+  final double anchorPointRadius; // เพิ่มตัวแปรสำหรับขนาดจุดยึด (หมุด)
+  final double pinScale; // ใช้ scale แทน boolean animation
+   final bool showOriginalBoxes;
 
   ManualMeasurementPainter({
     required this.image,
@@ -20,68 +24,173 @@ class ManualMeasurementPainter extends CustomPainter {
     this.endPoint,
     this.isEditing = false,
     this.currentEditingObject = -1,
+    this.zoomScale = 1.0,
+    this.anchorPointRadius = 12.0, // ค่าเริ่มต้นของหมุด - ขยายขนาดให้ใหญ่ขึ้น
+    this.pinScale = 1.0, // ค่าเริ่มต้น 1.0
+    this.showOriginalBoxes = true,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
+    // ประกาศตัวแปรสำคัญเริ่มต้น
+    double offsetX = 0;
+    double offsetY = 0;
+    double baseScale = 1.0;
+
+    // ตรวจสอบว่า image ไม่เป็น null ก่อนที่จะวาด
+    if (image == null) {
+      // วาดพื้นหลังสำหรับกรณีที่ไม่มีรูปภาพ
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, size.width, size.height),
+        Paint()..color = Colors.grey[300]!,
+      );
+      
+      // วาดข้อความแจ้งเตือน
+      final textStyle = TextStyle(
+        color: Colors.black54,
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+      );
+      
+      final textSpan = TextSpan(text: "ไม่มีรูปภาพ", style: textStyle);
+      final textPainter = TextPainter(
+        text: textSpan,
+        textDirection: TextDirection.ltr,
+      );
+      
+      textPainter.layout();
+      final xCenter = (size.width - textPainter.width) / 2;
+      final yCenter = (size.height - textPainter.height) / 2;
+      textPainter.paint(canvas, Offset(xCenter, yCenter));
+      
+      return; // ออกจากเมธอดเพราะไม่มีรูปภาพ
+    }
+
     // คำนวณอัตราส่วนเพื่อให้ภาพพอดีกับ Canvas
-    final double scaleX = size.width / image.width;
-    final double scaleY = size.height / image.height;
-    final double scale = math.min(scaleX, scaleY);
+    final double scaleX = size.width / image!.width;
+    final double scaleY = size.height / image!.height;
+    baseScale = math.min(scaleX, scaleY);
     
     // คำนวณพิกัดเพื่อวางภาพไว้ตรงกลาง
-    final double offsetX = (size.width - image.width * scale) / 2;
-    final double offsetY = (size.height - image.height * scale) / 2;
+    offsetX = (size.width - image!.width * baseScale) / 2;
+    offsetY = (size.height - image!.height * baseScale) / 2;
+
+    // เพิ่มฟลแล็กการแสดงกรอบต้นฉบับ
+    final bool showOriginalBoxes = true; // สามารถเพิ่มเป็นพารามิเตอร์ของคลาสได้
+    
+    // วาดกรอบตรวจจับต้นฉบับ (bounding boxes)
+    if (showOriginalBoxes) {
+      for (int i = 0; i < detectedObjects.length; i++) {
+        final obj = detectedObjects[i];
+        
+        // กำหนดสีตามประเภทวัตถุ
+        Paint boxPaint = Paint()
+          ..color = _getColorByObjectType(obj.classId).withOpacity(0.3)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2;
+        
+        // สร้างกรอบรอบพื้นที่การตรวจจับ
+        Rect detectionBox;
+        
+        // ในกรณีของเส้น เราต้องสร้างกรอบรอบๆ เส้น
+        if (obj.classId == 0) { // Yellow Mark (แนวนอน)
+          // สร้างกรอบยาวตามแนวนอน
+          detectionBox = Rect.fromLTWH(
+            offsetX + (obj.x1 - 10) * baseScale, 
+            offsetY + (obj.y1 - 20) * baseScale,
+            (obj.x2 - obj.x1 + 20) * baseScale, 
+            40 * baseScale
+          );
+        } else if (obj.classId == 1) { // Heart Girth (แนวตั้ง)
+          // สร้างกรอบสูงตามแนวตั้ง
+          detectionBox = Rect.fromLTWH(
+            offsetX + (obj.x1 - 20) * baseScale, 
+            offsetY + obj.y1 * baseScale,
+            40 * baseScale, 
+            (obj.y2 - obj.y1) * baseScale
+          );
+        } else if (obj.classId == 2) { // Body Length (แนวนอน)
+          // สร้างกรอบยาวตามแนวนอน
+          detectionBox = Rect.fromLTWH(
+            offsetX + obj.x1 * baseScale, 
+            offsetY + (obj.y1 - 20) * baseScale,
+            (obj.x2 - obj.x1) * baseScale, 
+            40 * baseScale
+          );
+        } else {
+          // กรอบปกติสำหรับวัตถุไม่รู้จัก
+          detectionBox = Rect.fromLTWH(
+            offsetX + obj.x1 * baseScale, 
+            offsetY + obj.y1 * baseScale,
+            (obj.x2 - obj.x1) * baseScale, 
+            (obj.y2 - obj.y1) * baseScale
+          );
+        }
+        
+        // วาดกรอบด้วยเส้นประ
+        _drawDashedRect(canvas, detectionBox, boxPaint);
+        
+        // แสดงระดับความเชื่อมั่น
+        final confidence = (obj.confidence * 100).toStringAsFixed(0) + '%';
+        _drawLabel(
+          canvas, 
+          _getLabelByClassId(obj.classId) + ' ' + confidence, 
+          detectionBox.left, 
+          detectionBox.top - 5, 
+          _getColorByObjectType(obj.classId)
+        );
+      }
+    }
     
     // วาดภาพ
-    final src = Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
-    final dst = Rect.fromLTWH(offsetX, offsetY, image.width * scale, image.height * scale);
+    final src = Rect.fromLTWH(0, 0, image!.width.toDouble(), image!.height.toDouble());
+    final dst = Rect.fromLTWH(offsetX, offsetY, image!.width * baseScale, image!.height * baseScale);
     
     // วาดภาพลงบน Canvas
-    canvas.drawImageRect(image, src, dst, Paint());
+    canvas.drawImageRect(image!, src, dst, Paint());
     
-    // กำหนดสีตามประเภทของวัตถุ
+    // กำหนดสีตามประเภทของการวัด
     final Paint bodyLengthPaint = Paint()
       ..color = Colors.blue
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 4;
       
     final Paint heartGirthPaint = Paint()
       ..color = Colors.red
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 4;
       
     final Paint yellowMarkPaint = Paint()
       ..color = Colors.amber
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 4;
       
     final Paint selectedPaint = Paint()
       ..color = Colors.green
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4;
+      ..strokeWidth = 5;
       
     final Paint editingPaint = Paint()
       ..color = _getColorByObjectType(currentEditingObject)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
+      ..strokeWidth = 4
       ..strokeCap = StrokeCap.round;
     
-    // วาดกรอบแต่ละประเภท
+    // วาดเส้นสำหรับการวัดแต่ละประเภท
     for (int i = 0; i < detectedObjects.length; i++) {
       final obj = detectedObjects[i];
       
       // เลือกสีตามประเภทของวัตถุ
       Paint paint;
       switch (obj.classId) {
-        case 0: // Body Length
-          paint = bodyLengthPaint;
+        case 0: // Yellow Mark (จุดอ้างอิง)
+          paint = yellowMarkPaint;
           break;
-        case 1: // Heart Girth
+        case 1: // Heart Girth (รอบอก)
           paint = heartGirthPaint;
           break;
-        case 2: // Yellow Mark
-          paint = yellowMarkPaint;
+        case 2: // Body Length (ความยาวลำตัว)
+          paint = bodyLengthPaint;
           break;
         default:
           paint = Paint()..color = Colors.grey;
@@ -93,90 +202,102 @@ class ManualMeasurementPainter extends CustomPainter {
       }
       
       // แปลงพิกัดให้ตรงกับขนาดของ Canvas
-      final rect = Rect.fromLTRB(
-        offsetX + obj.x1 * scale,
-        offsetY + obj.y1 * scale,
-        offsetX + obj.x2 * scale,
-        offsetY + obj.y2 * scale,
+      final x1 = offsetX + obj.x1 * baseScale;
+      final y1 = offsetY + obj.y1 * baseScale;
+      final x2 = offsetX + obj.x2 * baseScale;
+      final y2 = offsetY + obj.y2 * baseScale;
+      
+      // วาดเส้นตรง
+      canvas.drawLine(
+        Offset(x1, y1),
+        Offset(x2, y2),
+        paint..strokeWidth = 4
       );
       
-      // วาดกรอบ
-      canvas.drawRect(rect, paint);
+      // วาดจุดยึดที่ปลายทั้งสองด้าน (แบบใหม่)
+      _drawAnchorPoint(canvas, Offset(x1, y1), paint, i == selectedIndex);
+      _drawAnchorPoint(canvas, Offset(x2, y2), paint, i == selectedIndex);
       
-      // แสดงป้ายกำกับ
+      // คำนวณความยาวของเส้น
+      final double lineLength = math.sqrt(math.pow(x2 - x1, 2) + math.pow(y2 - y1, 2));
+      final double lengthInPixels = lineLength / baseScale; // แปลงกลับเป็นพิกเซลของภาพจริง
+      
+      // แสดงความยาวที่วัดได้
+      final measureText = '${lengthInPixels.toStringAsFixed(0)} px';
+      
+      // คำนวณตำแหน่งแสดงค่า - ตรงกลางของเส้น
+      final midX = (x1 + x2) / 2;
+      final midY = (y1 + y2) / 2;
+      
+      // วาดข้อความแสดงความยาว
+      _drawLabel(canvas, measureText, midX - 25, midY, _getColorByObjectType(obj.classId));
+      
+      // แสดงป้ายกำกับประเภทการวัด
       final String label = _getLabelByClassId(obj.classId);
-      final textStyle = TextStyle(
-        color: Colors.white,
-        fontSize: 14,
-        fontWeight: FontWeight.bold,
-        shadows: [
-          Shadow(offset: Offset(1, 1), blurRadius: 3, color: Colors.black),
-        ],
-      );
       
-      final textSpan = TextSpan(text: label, style: textStyle);
-      final textPainter = TextPainter(
-        text: textSpan,
-        textDirection: TextDirection.ltr,
-      );
+      // ปรับตำแหน่งป้ายกำกับตามประเภทของเส้น
+      double labelX, labelY;
       
-      textPainter.layout();
+      if (obj.classId == 0) { // Yellow Mark (จุดอ้างอิง)
+        labelX = x1;
+        labelY = y1 - 30; // แสดงเหนือเส้น
+      } else if (obj.classId == 1) { // Heart Girth (รอบอก)
+        labelX = x1 - 15; // ขยับไปทางซ้ายเล็กน้อย
+        labelY = y1 - 5; // แสดงด้านบนของเส้น
+      } else { // Body Length (ความยาวลำตัว)
+        labelX = x1;
+        labelY = y1 - 30; // แสดงเหนือเส้น
+      }
       
-      // วาดพื้นหลังป้ายกำกับ
-      final bgPaint = Paint()..color = _getColorByObjectType(obj.classId).withOpacity(0.7);
-      final bgRect = Rect.fromLTWH(
-        rect.left,
-        rect.top - textPainter.height - 4,
-        textPainter.width + 8,
-        textPainter.height + 4,
-      );
-      
-      canvas.drawRect(bgRect, bgPaint);
-      textPainter.paint(canvas, Offset(rect.left + 4, rect.top - textPainter.height - 2));
+      // แสดงป้ายกำกับประเภทการวัด
+      _drawLabel(canvas, label, labelX, labelY, _getColorByObjectType(obj.classId));
     }
     
-    // วาดกรอบที่กำลังสร้าง/แก้ไข
+    // วาดเส้นที่กำลังสร้าง/แก้ไข
     if (isEditing && startPoint != null && endPoint != null) {
-      // วาดเส้นประเพื่อแสดงพื้นที่ที่กำลังเลือก
-      final rect = Rect.fromPoints(startPoint!, endPoint!);
+      // ปรับพิกัดของจุดเริ่มต้นและจุดสิ้นสุดตามการซูม
+      final adjustedStartPoint = Offset(
+        offsetX + startPoint!.dx * baseScale / zoomScale,
+        offsetY + startPoint!.dy * baseScale / zoomScale
+      );
       
-      // วาดกรอบแบบเส้นประ
-      _drawDashedRect(canvas, rect, editingPaint);
+      final adjustedEndPoint = Offset(
+        offsetX + endPoint!.dx * baseScale / zoomScale,
+        offsetY + endPoint!.dy * baseScale / zoomScale
+      );
+      
+      // วาดเส้นตรง
+      canvas.drawLine(adjustedStartPoint, adjustedEndPoint, editingPaint);
+      
+      // วาดจุดที่ปลายทั้งสองด้าน
+      _drawAnchorPoint(canvas, adjustedStartPoint, editingPaint, true);
+      _drawAnchorPoint(canvas, adjustedEndPoint, editingPaint, true);
+      
+      // คำนวณความยาวของเส้น
+      final double lineLength = math.sqrt(
+        math.pow(adjustedEndPoint.dx - adjustedStartPoint.dx, 2) + 
+        math.pow(adjustedEndPoint.dy - adjustedStartPoint.dy, 2)
+      );
+      final double lengthInPixels = lineLength / baseScale; // แปลงกลับเป็นพิกเซลของภาพจริง
+      
+      // แสดงความยาวที่วัดได้
+      final measureText = '${lengthInPixels.toStringAsFixed(0)} px';
+      
+      // ตำแหน่งแสดงค่า - ตรงกลางของเส้น
+      final midX = (adjustedStartPoint.dx + adjustedEndPoint.dx) / 2;
+      final midY = (adjustedStartPoint.dy + adjustedEndPoint.dy) / 2;
+      
+      _drawLabel(canvas, measureText, midX - 25, midY, _getColorByObjectType(currentEditingObject));
       
       // แสดงป้ายกำกับว่ากำลังวาดอะไร
       final String label = _getLabelByClassId(currentEditingObject);
-      final textStyle = TextStyle(
-        color: Colors.white,
-        fontSize: 14,
-        fontWeight: FontWeight.bold,
-        shadows: [
-          Shadow(offset: Offset(1, 1), blurRadius: 3, color: Colors.black),
-        ],
-      );
       
-      final textSpan = TextSpan(text: label, style: textStyle);
-      final textPainter = TextPainter(
-        text: textSpan,
-        textDirection: TextDirection.ltr,
-      );
-      
-      textPainter.layout();
-      
-      // วาดพื้นหลังป้ายกำกับ
-      final bgPaint = Paint()..color = _getColorByObjectType(currentEditingObject).withOpacity(0.7);
-      final bgRect = Rect.fromLTWH(
-        rect.left,
-        rect.top - textPainter.height - 4,
-        textPainter.width + 8,
-        textPainter.height + 4,
-      );
-      
-      canvas.drawRect(bgRect, bgPaint);
-      textPainter.paint(canvas, Offset(rect.left + 4, rect.top - textPainter.height - 2));
+      // แสดงป้ายกำกับที่จุดเริ่มต้น
+      _drawLabel(canvas, label, adjustedStartPoint.dx, adjustedStartPoint.dy - 30, _getColorByObjectType(currentEditingObject));
     }
   }
-  
-  // ฟังก์ชันสำหรับวาดเส้นประ
+
+  // เพิ่มฟังก์ชันสำหรับวาดกรอบสี่เหลี่ยมด้วยเส้นประ
   void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
     final double dashWidth = 5;
     final double dashSpace = 3;
@@ -221,16 +342,157 @@ class ManualMeasurementPainter extends CustomPainter {
       startY = endY + dashSpace;
     }
   }
+
+  // ฟังก์ชันสำหรับวาดป้ายกำกับบนเส้น
+  void _drawLabel(Canvas canvas, String text, double x, double y, Color color) {
+    final textStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 14,
+      fontWeight: FontWeight.bold,
+      shadows: [
+        Shadow(offset: Offset(1, 1), blurRadius: 3, color: Colors.black),
+      ],
+    );
+    
+    final textSpan = TextSpan(text: text, style: textStyle);
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.ltr,
+    );
+    
+    textPainter.layout();
+    
+    // วาดพื้นหลังสำหรับข้อความ
+    final bgRect = Rect.fromLTWH(
+      x,
+      y - textPainter.height,
+      textPainter.width + 8,
+      textPainter.height + 4,
+    );
+    
+    canvas.drawRect(
+      bgRect,
+      Paint()..color = color.withOpacity(0.7)
+    );
+    
+    // วาดข้อความ
+    textPainter.paint(canvas, Offset(x + 4, y - textPainter.height + 2));
+  }
+
+  
+  // ฟังก์ชันสำหรับวาดจุดยึด (หมุด)
+  void _drawAnchorPoint(Canvas canvas, Offset position, Paint paint, bool isSelected) {
+    // ขนาดของหมุด
+    final double pinWidth = anchorPointRadius * 1.8;  // ขนาดความกว้าง
+    final double pinHeight = anchorPointRadius * 2.5; // ขนาดความสูง
+    
+    // คำนวณขนาดเมื่อมีแอนิเมชัน
+    final double animationScale = isSelected && isSelected ? 1.2 : 1.0;
+    final double animatedPinWidth = pinWidth * animationScale;
+    final double animatedPinHeight = pinHeight * animationScale;
+    
+    final Color pinColor = paint.color;
+    final Color shadowColor = Colors.black.withOpacity(0.3);
+    
+    // คำนวณจุดศูนย์กลางของหมุด
+    final Offset pinCenter = Offset(position.dx, position.dy - animatedPinHeight / 2);
+    
+    // สร้าง path สำหรับหมุด
+    final path = Path();
+    
+    // เริ่มจากจุดบนสุดของหมุด
+    path.moveTo(pinCenter.dx, pinCenter.dy - animatedPinHeight / 2);
+    
+    // ส่วนโค้งด้านซ้าย
+    path.quadraticBezierTo(
+      pinCenter.dx - animatedPinWidth / 2, pinCenter.dy - animatedPinHeight / 2 + animatedPinHeight / 4,
+      pinCenter.dx - animatedPinWidth / 2, pinCenter.dy
+    );
+    
+    // ส่วนล่างของหมุด (รูปหยดน้ำ)
+    path.quadraticBezierTo(
+      pinCenter.dx, pinCenter.dy + animatedPinHeight / 2,
+      position.dx, position.dy
+    );
+    
+    // ส่วนโค้งด้านขวา
+    path.quadraticBezierTo(
+      pinCenter.dx + animatedPinWidth / 2, pinCenter.dy,
+      pinCenter.dx + animatedPinWidth / 2, pinCenter.dy - animatedPinHeight / 2 + animatedPinHeight / 4,
+    );
+    
+    // ปิด path กลับไปจุดเริ่มต้น
+    path.close();
+    
+    // วาดเงาด้านล่าง
+    canvas.drawShadow(path, shadowColor, 3, true);
+    
+    // วาดตัวหมุด
+    canvas.drawPath(
+      path, 
+      Paint()
+        ..color = pinColor
+        ..style = PaintingStyle.fill
+    );
+    
+    // วาดขอบหมุด
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+    );
+    
+    // วาดวงกลมส่วนกลางของหมุด (เหมือนใน Google Maps)
+    canvas.drawCircle(
+      Offset(pinCenter.dx, pinCenter.dy),
+      animatedPinWidth / 3,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill
+    );
+    
+    // ถ้าเป็นจุดที่เลือกอยู่ ให้เพิ่มเอฟเฟกต์
+    if (isSelected) {
+      // วาดขอบสว่างรอบหมุด
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = Colors.white.withOpacity(0.5)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+      );
+      
+      // วาดจุดกลางที่เล็กลงเมื่อเลือก
+      canvas.drawCircle(
+        Offset(pinCenter.dx, pinCenter.dy),
+        animatedPinWidth / 4,
+        Paint()
+          ..color = pinColor
+          ..style = PaintingStyle.fill
+      );
+    } else {
+      // วาดจุดกลางปกติ
+      canvas.drawCircle(
+        Offset(pinCenter.dx, pinCenter.dy),
+        animatedPinWidth / 4,
+        Paint()
+          ..color = pinColor.withOpacity(0.8)
+          ..style = PaintingStyle.fill
+      );
+    }
+  }
   
   // ฟังก์ชันสำหรับดึงป้ายกำกับตามประเภทของวัตถุ
   String _getLabelByClassId(int classId) {
     switch (classId) {
       case 0:
-        return 'ความยาวลำตัว';
+        return 'จุดอ้างอิง'; // Yellow Mark
       case 1:
-        return 'รอบอก';
+        return 'รอบอก'; // Heart Girth
       case 2:
-        return 'จุดอ้างอิง';
+        return 'ความยาวลำตัว'; // Body Length
       default:
         return 'ไม่ทราบประเภท';
     }
@@ -240,11 +502,11 @@ class ManualMeasurementPainter extends CustomPainter {
   Color _getColorByObjectType(int objectType) {
     switch (objectType) {
       case 0:
-        return Colors.blue;
+        return Colors.amber; // Yellow Mark
       case 1:
-        return Colors.red;
+        return Colors.red; // Heart Girth
       case 2:
-        return Colors.amber;
+        return Colors.blue; // Body Length
       default:
         return Colors.grey;
     }
@@ -258,6 +520,9 @@ class ManualMeasurementPainter extends CustomPainter {
            oldDelegate.startPoint != startPoint ||
            oldDelegate.endPoint != endPoint ||
            oldDelegate.isEditing != isEditing ||
-           oldDelegate.currentEditingObject != currentEditingObject;
+           oldDelegate.currentEditingObject != currentEditingObject ||
+           oldDelegate.zoomScale != zoomScale || 
+           oldDelegate.anchorPointRadius != anchorPointRadius ||
+           oldDelegate.pinScale != pinScale; // ตรวจสอบ pinScale แทน isPinAnimating
   }
 }

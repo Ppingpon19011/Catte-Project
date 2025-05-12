@@ -11,7 +11,7 @@ class CattleWeightApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ประมาณน้ำหนักโค',
+      title: 'แอปประมาณน้ำหนักโคด้วยภาพถ่าย',
       theme: AppTheme.lightTheme,  // ใช้ธีมที่กำหนดไว้
       home: MainScreen(),
       debugShowCheckedModeBanner: false,
@@ -44,7 +44,7 @@ class _MainScreenState extends State<MainScreen> {
         },
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home_filled),  // เปลี่ยนไอคอนให้สวยงามขึ้น
+            icon: Icon(Icons.home_filled),  // เปลี่ยนไอคอนให้สวยขึ้น
             label: 'รายการโค',
           ),
           BottomNavigationBarItem(

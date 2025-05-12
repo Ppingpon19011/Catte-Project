@@ -94,6 +94,52 @@ class CattleCard extends StatelessWidget {
     );
   }
 
+  // เพิ่มในไฟล์ custom_card.dart หรือที่มีการแสดงภาพ
+  Widget _buildImageWidget(String? imageUrl) {
+      if (imageUrl == null) {
+          return Container(
+              color: Colors.grey[200],
+              child: Icon(Icons.image_not_supported, color: Colors.grey),
+          );
+      }
+      
+      if (imageUrl.startsWith('assets/')) {
+          return Image.asset(
+              imageUrl,
+              fit: BoxFit.cover,
+          );
+      } else {
+          final file = File(imageUrl);
+          // ตรวจสอบว่าไฟล์มีอยู่จริงหรือไม่
+          return FutureBuilder<bool>(
+              future: file.exists(),
+              builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Center(child: CircularProgressIndicator());
+                  }
+                  
+                  if (snapshot.hasData && snapshot.data == true) {
+                      return Image.file(
+                          file,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                  color: Colors.grey[200],
+                                  child: Icon(Icons.broken_image, color: Colors.grey),
+                              );
+                          },
+                      );
+                  } else {
+                      return Container(
+                          color: Colors.grey[200],
+                          child: Icon(Icons.image_not_supported, color: Colors.grey),
+                      );
+                  }
+              },
+          );
+      }
+  }
+
   Widget _buildCardContent() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
