@@ -12,7 +12,7 @@ import '../utils/enhanced_measurement_painter.dart';
 class CattleDetector {
   // แก้ไขชื่อไฟล์ให้ตรงกับที่กำหนดใน pubspec.yaml
   static const String MODEL_FILE_NAME = 'best_model_float32.tflite';
-  static const int INPUT_SIZE = 1280; // ขนาด input ของโมเดล YOLOv8
+  static const int INPUT_SIZE = 640; // ขนาด input ของโมเดล YOLOv8
   
   Interpreter? _interpreter;
   bool _modelLoaded = false;
@@ -361,7 +361,6 @@ class CattleDetector {
                 double h = boxes[3][i].toDouble();
                 
                 // แปลงเป็นพิกัด x1, y1, x2, y2 ตามการตรวจจับจริง
-                // พิกัดพื้นฐานของบ็อกซ์ที่ตรวจพบ
                 double boxX1 = (x - w / 2) * imageWidth;
                 double boxY1 = (y - h / 2) * imageHeight;
                 double boxX2 = (x + w / 2) * imageWidth;
@@ -375,23 +374,36 @@ class CattleDetector {
                 
                 // ประกาศตัวแปรสำหรับเก็บพิกัดเส้น
                 double x1, y1, x2, y2;
+
+                int correctedClassId;
+                    
+                  // แก้ไขการแมปค่า classId
+                  if (classId == 0) {
+                      correctedClassId = 2;  // หากโมเดลตรวจจับเป็น classId 0 ให้เป็น Body Length (2)
+                  } else if (classId == 1) {
+                      correctedClassId = 0;  // หากโมเดลตรวจจับเป็น classId 1 ให้เป็น Yellow Mark (0)
+                  } else if (classId == 2) {
+                      correctedClassId = 1;  // หากโมเดลตรวจจับเป็น classId 2 ให้เป็น Heart Girth (1)
+                  } else {
+                      correctedClassId = classId;  // กรณีอื่นๆ ให้คงเดิม
+                  }
                 
                 // กำหนดประเภทของกรอบตามคลาสและกำหนดพิกัดใหม่ตามที่ต้องการ:
-                if (classId == 0) {  // Yellow_mark: เส้นแนวนอนตามความยาวของไม้ที่แปะเทป
+                if (correctedClassId == 0) {  // Yellow_mark: เส้นแนวนอนตามความยาวของไม้ที่แปะเทป
                   // ใช้ขอบซ้ายและขอบขวาของบ็อกซ์เป็นจุดเริ่มต้นและจุดสิ้นสุดของเส้น
                   x1 = boxX1;
                   y1 = (boxY1 + boxY2) / 2;  // ใช้ความสูงกึ่งกลางของบ็อกซ์
                   x2 = boxX2;
                   y2 = y1;  // เส้นแนวนอน
                 } 
-                else if (classId == 1) {  // Heart_Girth: เส้นแนวตั้งตามรอบอกของโค
+                else if (correctedClassId == 1) {  // Heart_Girth: เส้นแนวตั้งตามรอบอกของโค
                   // ใช้ความสูงของบ็อกซ์เป็นเส้นตรงแนวตั้ง
                   x1 = (boxX1 + boxX2) / 2;  // ใช้ความกว้างกึ่งกลางของบ็อกซ์
                   y1 = boxY1;  // จุดบนสุดของบ็อกซ์
                   x2 = x1;  // เส้นแนวตั้ง
                   y2 = boxY2;  // จุดล่างสุดของบ็อกซ์
                 } 
-                else if (classId == 2) {  // Body_Length: เส้นแนวนอนจากไหล่ถึงสะโพกโค
+                else if (correctedClassId == 2) {  // Body_Length: เส้นแนวนอนจากไหล่ถึงสะโพกโค
                   // ใช้ขอบซ้ายและขอบขวาของบ็อกซ์เป็นจุดเริ่มต้นและจุดสิ้นสุดของเส้น
                   x1 = boxX1;  // จุดซ้ายสุดของบ็อกซ์
                   y1 = (boxY1 + boxY2) / 2;  // ใช้ความสูงกึ่งกลางของบ็อกซ์
@@ -407,19 +419,22 @@ class CattleDetector {
                 }
 
                 String className = '';
-                if (classId == 0) {
+                if (correctedClassId == 0) {
                   className = "Yellow_Mark";
-                } else if (classId == 1) {
+                } else if (correctedClassId == 1) {
                   className = "Heart_Girth";
-                } else if (classId == 2) {
+                } else if (correctedClassId == 2) {
                   className = "Body_Length";
                 } else {
-                  className = "Unknown_${classId}";
+                  className = "Unknown_${correctedClassId}";
                 }
+
+                // พิมพ์ค่าเพื่อตรวจสอบการแมป classId
+                print('การแมปค่า classId: จากโมเดล=$classId แก้ไขเป็น=$correctedClassId ($className)');
                 
                 // เพิ่มวัตถุที่ตรวจพบ
                 allDetectedObjects.add(DetectedObject(
-                  classId: classId,
+                  classId: correctedClassId,
                   className: className,
                   confidence: confidence,
                   x1: x1,
@@ -440,8 +455,25 @@ class CattleDetector {
           
           // กรองผลลัพธ์โดยเลือกเฉพาะวัตถุที่มีความเชื่อมั่นสูงสุดในแต่ละคลาส
           Map<int, DetectedObject> bestObjects = {};
+
+          // ให้ความสำคัญกับ Yellow Mark (classId = 0) ก่อน
+          List<DetectedObject> yellowMarks = allDetectedObjects
+              .where((obj) => obj.classId == 0)
+              .toList();
+
+          if (yellowMarks.isNotEmpty) {
+              // เรียงลำดับ Yellow Mark ตามความเชื่อมั่นจากมากไปน้อย
+              yellowMarks.sort((a, b) => b.confidence.compareTo(a.confidence));
+              // เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด
+              bestObjects[0] = yellowMarks.first;
+              print('เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด: ${yellowMarks.first.confidence}');
+          }
           
           for (var obj in allDetectedObjects) {
+
+            // ข้าม Yellow Mark เพราะจัดการไปแล้ว
+            if (obj.classId == 0) continue;
+
             if (!bestObjects.containsKey(obj.classId) || 
                 bestObjects[obj.classId]!.confidence < obj.confidence) {
               bestObjects[obj.classId] = obj;
@@ -450,6 +482,10 @@ class CattleDetector {
           
           // เพิ่มวัตถุที่ดีที่สุดของแต่ละคลาสลงในรายการสุดท้าย
           detectedObjects = bestObjects.values.toList();
+
+          // เรียงลำดับวัตถุตาม classId
+          detectedObjects.sort((a, b) => a.classId.compareTo(b.classId));
+          
         } else {
           print('รูปแบบข้อมูลไม่ตรงกับที่คาดหวัง');
           return [];

@@ -418,12 +418,25 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     detector.DetectedObject? yellowMarkObj;
     detector.DetectedObject? heartGirthObj;
     detector.DetectedObject? bodyLengthObj;
+
+    // เพิ่มการตรวจสอบเพื่อหา Yellow Mark ก่อน
+    List<detector.DetectedObject> potentialYellowMarks = [];
+
+    for (var obj in _detectedObjects) {
+        if (obj.classId == 0) { // Yellow Mark
+            potentialYellowMarks.add(obj);
+            _hasYellowMark = true;
+        }
+    }
+
+    // เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด
+    if (potentialYellowMarks.isNotEmpty) {
+        potentialYellowMarks.sort((a, b) => b.confidence.compareTo(a.confidence));
+        yellowMarkObj = potentialYellowMarks.first;
+        print('เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด: ${yellowMarkObj.confidence}');
+    }
     
     for (var obj in _detectedObjects) {
-      if (obj.classId == 0) { // Yellow Mark
-        yellowMarkObj = obj;
-        _hasYellowMark = true;
-      }
       if (obj.classId == 1) { // Heart Girth
         heartGirthObj = obj;
         _hasHeartGirth = true;
@@ -441,7 +454,18 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
         _bodyLengthCm = 0.0;
         _heartGirthCm = 0.0;
         _estimatedWeight = 0.0;
+        
       });
+
+      // แสดงข้อความแจ้งเตือน
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('ไม่พบจุดอ้างอิง (Yellow Mark) กรุณาตรวจสอบการวางตำแหน่งจุดอ้างอิงในภาพ'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+          ),
+      );
+
       return;
     }
     
@@ -453,6 +477,8 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     
     // คำนวณอัตราส่วนพิกเซลต่อเซนติเมตร
     _scaleRatio = yellowMarkLength / 100; // จุดอ้างอิง 100 ซม.
+
+    print('การวัด: จุดอ้างอิง = $yellowMarkLength พิกเซล, อัตราส่วน = $_scaleRatio พิกเซล/ซม.');
     
     // คำนวณขนาดจริง
     if (_hasHeartGirth && _hasBodyLength) {

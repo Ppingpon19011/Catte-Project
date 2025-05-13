@@ -2037,7 +2037,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                       ),
                       
                     // ปุ่มบันทึกน้ำหนัก - แสดงเมื่อมีผลลัพธ์แล้ว
-                    if (_hasResult)
+                    if (_hasResult && !_resultWasAlreadySaved)
                     Padding(
                       padding: EdgeInsets.only(bottom: 16.0),
                       child: ElevatedButton.icon(
