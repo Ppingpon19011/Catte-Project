@@ -379,13 +379,13 @@ class CattleDetector {
                     
                   // แก้ไขการแมปค่า classId
                   if (classId == 0) {
-                      correctedClassId = 2;  // หากโมเดลตรวจจับเป็น classId 0 ให้เป็น Body Length (2)
+                    correctedClassId = 0;
                   } else if (classId == 1) {
-                      correctedClassId = 0;  // หากโมเดลตรวจจับเป็น classId 1 ให้เป็น Yellow Mark (0)
+                    correctedClassId = 1;
                   } else if (classId == 2) {
-                      correctedClassId = 1;  // หากโมเดลตรวจจับเป็น classId 2 ให้เป็น Heart Girth (1)
+                    correctedClassId = 2;
                   } else {
-                      correctedClassId = classId;  // กรณีอื่นๆ ให้คงเดิม
+                    correctedClassId = classId;  // กรณีอื่นๆ ให้คงเดิม
                   }
                 
                 // กำหนดประเภทของกรอบตามคลาสและกำหนดพิกัดใหม่ตามที่ต้องการ:
@@ -485,7 +485,7 @@ class CattleDetector {
 
           // เรียงลำดับวัตถุตาม classId
           detectedObjects.sort((a, b) => a.classId.compareTo(b.classId));
-          
+
         } else {
           print('รูปแบบข้อมูลไม่ตรงกับที่คาดหวัง');
           return [];

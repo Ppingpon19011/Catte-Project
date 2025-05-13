@@ -71,6 +71,38 @@ class DatabaseHelper {
     );
   }
 
+  Future<bool> checkCattleNameExists(String name, [String? excludeId]) async {
+    final db = await database;
+    
+    String query = 'SELECT COUNT(*) FROM cattle WHERE name = ?';
+    List<dynamic> args = [name];
+    
+    if (excludeId != null) {
+      query += ' AND id != ?';
+      args.add(excludeId);
+    }
+    
+    final result = await db.rawQuery(query, args);
+    final count = Sqflite.firstIntValue(result);
+    return count != null && count > 0;
+  }
+
+  Future<bool> checkCattleNumberExists(String number, [String? excludeId]) async {
+    final db = await database;
+    
+    String query = 'SELECT COUNT(*) FROM cattle WHERE cattleNumber = ?';
+    List<dynamic> args = [number];
+    
+    if (excludeId != null) {
+      query += ' AND id != ?';
+      args.add(excludeId);
+    }
+    
+    final result = await db.rawQuery(query, args);
+    final count = Sqflite.firstIntValue(result);
+    return count != null && count > 0;
+  }
+
   // เพิ่มฟังก์ชันลงทะเบียน listener
   void addChangeListener(Function() listener) {
     _changeListeners.add(listener);

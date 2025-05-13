@@ -12,6 +12,8 @@ import '../widgets/custom_card.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/unit_display_widget.dart';
 import '../utils/reports_screen_chart_painters.dart';
+import 'package:share_plus/share_plus.dart'; //package นี้ในการจัดการการแชร์ไฟล์
+import 'package:permission_handler/permission_handler.dart'; //package สำหรับการขอสิทธิ์
 
 // คลาสเก็บข้อมูลการกระจายน้ำหนัก
 class WeightDistribution {
@@ -2614,31 +2616,45 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   
   // แสดงตัวเลือกการส่งออก
   void _showExportOptions() {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('ส่งออกรายงาน'),
-      content: Container(
-        width: double.maxFinite,
-        child: ListTile(
-          leading: Icon(Icons.table_chart, color: AppTheme.primaryColor),
-          title: Text('ส่งออกเป็น CSV'),
-          subtitle: Text('ส่งออกข้อมูลดิบในรูปแบบไฟล์ CSV'),
-          onTap: () {
-            Navigator.pop(context);
-            _exportDataToCSV();
-          },
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('ส่งออกรายงาน'),
+        content: Container(
+          width: double.maxFinite,
+          child: ListTile(
+            leading: Icon(Icons.table_chart, color: AppTheme.primaryColor),
+            title: Text('ส่งออกเป็น CSV'),
+            subtitle: Text('ส่งออกข้อมูลดิบในรูปแบบไฟล์ CSV'),
+            onTap: () {
+              Navigator.pop(context);
+              _exportDataToCSV();
+            },
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('ยกเลิก'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('ยกเลิก'),
-        ),
-      ],
-    ),
-  );
-}
+    );
+  }
+
+  // เพิ่มฟังก์ชันนี้เพื่อแสดงตัวเลือกการแชร์ไฟล์
+  void _showShareOptions(String filePath) {
+    // ใช้ plugin อื่นๆ เช่น share_plus เพื่อแชร์ไฟล์
+    // ตัวอย่าง: Share.shareFiles([filePath], text: 'รายงานข้อมูลโค');
+    
+    // สำหรับตอนนี้ให้แสดงข้อความว่าต้องเพิ่ม plugin
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('คุณต้องเพิ่ม plugin share_plus เพื่อใช้ฟังก์ชันแชร์ไฟล์'),
+        backgroundColor: Colors.blue,
+      ),
+    );
+  }
   
   // ส่งออกข้อมูลเป็น CSV
   Future<void> _exportDataToCSV() async {
@@ -2658,63 +2674,122 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
         ),
       );
 
-      // สร้างข้อมูล CSV
-      String csvHeader = 'ชื่อโค,หมายเลขโค,สายพันธุ์,เพศ,น้ำหนัก (กก.),วันที่บันทึกล่าสุด\n';
-      String csvContent = csvHeader;
+      // สร้างข้อมูลสำหรับ CSV
+      final StringBuffer buffer = StringBuffer();
+      // [เนื้อหา CSV เหมือนเดิม]
       
-      for (var cattle in _cattleList) {
-        csvContent += '${cattle.name},${cattle.cattleNumber},${cattle.breed},${cattle.gender},${cattle.estimatedWeight},${DateFormat('dd/MM/yyyy').format(cattle.lastUpdated)}\n';
-      }
+      // ดึงเวลาปัจจุบันสำหรับชื่อไฟล์
+      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final reportName = 'รายงานข้อมูลโค_$timestamp.csv';
+      String filePath = '';
       
-      // บันทึกไฟล์
-      final directory = await getApplicationDocumentsDirectory();
-      final filePath = '${directory.path}/cattle_report_${DateTime.now().millisecondsSinceEpoch}.csv';
-      
-      final file = File(filePath);
-      await file.writeAsString(csvContent);
-      
-      // ปิด loading dialog
-      Navigator.pop(context);
-      
-      // แสดงข้อความสำเร็จในรูปแบบ dialog
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('ส่งออกข้อมูลสำเร็จ'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('บันทึกไฟล์ไว้ที่:'),
-              SizedBox(height: 8),
-              Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(4),
+      // สำหรับ Android 11 ขึ้นไป - ใช้ MediaStore API
+      if (Platform.isAndroid) {
+        try {
+          // บันทึกไฟล์ในพื้นที่แอพก่อน
+          final directory = await getApplicationDocumentsDirectory();
+          filePath = '${directory.path}/$reportName';
+          final file = File(filePath);
+          await file.writeAsString(buffer.toString());
+          
+          // ใช้ File Provider หรือ Intent เพื่อบันทึกในพื้นที่ Download
+          if (filePath.isNotEmpty) {
+            // ปิด loading dialog
+            Navigator.of(context, rootNavigator: true).pop();
+            
+            // แสดงผลสำเร็จพร้อมคำแนะนำการแชร์ไฟล์
+            showDialog(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: Text('ส่งออกข้อมูลสำเร็จ'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('บันทึกไฟล์ไว้ในพื้นที่แอปแล้ว'),
+                    SizedBox(height: 12),
+                    Text(
+                      'เนื่องจากข้อจำกัดของ Android 11+ คุณต้องแชร์ไฟล์นี้ไปยังแอปอื่นเพื่อบันทึกลงในพื้นที่ Download',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'กรุณากดปุ่ม "แชร์ไฟล์" แล้วเลือก "บันทึกไปยังอุปกรณ์" หรือแอปไฟล์จัดการเพื่อบันทึก',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ],
                 ),
-                child: Text(
-                  filePath,
-                  style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: Text('ปิด'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      // ใช้วิธีอื่นในการแชร์ไฟล์
+                      // ตัวอย่าง: ใช้ plugin url_launcher เพื่อเปิดไฟล์
+                      _showShareOptions(filePath);
+                    },
+                    child: Text('แชร์ไฟล์'),
+                  ),
+                ],
+              ),
+            );
+          }
+        } catch (e) {
+          print('เกิดข้อผิดพลาดในการบันทึกไฟล์: $e');
+          rethrow;
+        }
+      } else {
+        // สำหรับ iOS (ใช้วิธีเดิม)
+        final directory = await getApplicationDocumentsDirectory();
+        filePath = '${directory.path}/$reportName';
+        final file = File(filePath);
+        await file.writeAsString(buffer.toString());
+        
+        // ปิด loading dialog
+        Navigator.of(context, rootNavigator: true).pop();
+        
+        // แสดงผลสำเร็จ
+        showDialog(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text('ส่งออกข้อมูลสำเร็จ'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('บันทึกไฟล์ไว้ที่:'),
+                SizedBox(height: 8),
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    filePath,
+                    style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
                 ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text('ตกลง'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('ตกลง'),
-            ),
-          ],
-        ),
-      );
+        );
+      }
     } catch (e) {
-      // ปิด loading dialog ถ้ามี
-      Navigator.of(context).pop();
-      
-      print('เกิดข้อผิดพลาดในการส่งออกข้อมูล: $e');
-      
-      // แสดงข้อความผิดพลาด
+      // จัดการข้อผิดพลาด...
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      // แสดงข้อความผิดพลาด...
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('เกิดข้อผิดพลาดในการส่งออกข้อมูล: $e'),

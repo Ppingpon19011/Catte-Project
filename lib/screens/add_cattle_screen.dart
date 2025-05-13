@@ -372,6 +372,40 @@ class _AddCattleScreenState extends State<AddCattleScreen> {
       });
 
       try {
+
+        final name = _nameController.text;
+        final cattleNumber = _cattleNumberController.text;
+
+        // ตรวจสอบชื่อซ้ำ
+        bool nameExists = await _dbHelper.checkCattleNameExists(name);
+        if (nameExists) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('ชื่อโค "$name" มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
+        // ตรวจสอบหมายเลขซ้ำ
+        bool numberExists = await _dbHelper.checkCattleNumberExists(cattleNumber);
+        if (numberExists) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('หมายเลขโค "$cattleNumber" มีอยู่ในระบบแล้ว กรุณาใช้หมายเลขอื่น'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
         // สร้าง Cattle ใหม่
         final newCattle = Cattle(
           id: '', // ID จะถูกสร้างโดย DatabaseHelper

@@ -305,7 +305,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
       }
       
       // แสดงผลลัพธ์
-      await _showResultDialog(); // เพิ่ม await เพื่อรอให้ dialog ปิดก่อนทำงานต่อ
+      await _showResultDialog();
     } else {
       // กรณีที่ตรวจจับไม่สำเร็จ แต่อาจมีการตรวจพบบางส่วน
       bool hasYellowMark = false;
@@ -325,10 +325,10 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         }
       }
       
-      // แสดงข้อความแจ้งเตือนพร้อมระบุว่าตรวจพบส่วนไหนบ้าง
+      // แสดง dialog แจ้งเตือนพร้อมระบุว่าตรวจพบส่วนไหนบ้าง
       bool? dialogResult = await showDialog<bool?>(
         context: _buildContext,
-        barrierDismissible: false,  // ป้องกันการปิด dialog ด้วยการแตะพื้นหลัง
+        barrierDismissible: false,
         builder: (context) => AlertDialog(
           title: Text('ต้องวัดด้วยตนเอง'),
           content: Column(
@@ -351,7 +351,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
           actions: [
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(context, true);  // ส่งค่า true กลับ
+                Navigator.pop(context, true);
               },
               child: Text('ดำเนินการต่อ'),
             ),

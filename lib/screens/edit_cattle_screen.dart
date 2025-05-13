@@ -403,6 +403,41 @@ class _EditCattleScreenState extends State<EditCattleScreen> {
       });
 
       try {
+
+        final name = _nameController.text;
+        final cattleNumber = _cattleNumberController.text;
+        final currentId = widget.cattle.id;
+        
+        // ตรวจสอบชื่อซ้ำ (ไม่นับตัวเอง)
+        bool nameExists = await _dbHelper.checkCattleNameExists(name, currentId);
+        if (nameExists) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('ชื่อโค "$name" มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+        
+        // ตรวจสอบหมายเลขซ้ำ (ไม่นับตัวเอง)
+        bool numberExists = await _dbHelper.checkCattleNumberExists(cattleNumber, currentId);
+        if (numberExists) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('หมายเลขโค "$cattleNumber" มีอยู่ในระบบแล้ว กรุณาใช้หมายเลขอื่น'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
         // อัปเดต Cattle
         final updatedCattle = Cattle(
           id: widget.cattle.id,
