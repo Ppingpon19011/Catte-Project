@@ -13,6 +13,11 @@ class CattleDetector {
   // แก้ไขชื่อไฟล์ให้ตรงกับที่กำหนดใน pubspec.yaml
   static const String MODEL_FILE_NAME = 'best_model_float32.tflite';
   static const int INPUT_SIZE = 640; // ขนาด input ของโมเดล YOLOv8
+
+  static const double HEART_GIRTH_X_OFFSET = 0.3;  // ค่า offset สำหรับตำแหน่ง x ของเส้นรอบอก
+  static const double BODY_LENGTH_START_X = 0.1;   // ตำแหน่งเริ่มต้น x ของเส้นความยาวลำตัว (0-1)
+  static const double BODY_LENGTH_END_X = 0.9;     // ตำแหน่งสิ้นสุด x ของเส้นความยาวลำตัว (0-1)
+  static const double BODY_LENGTH_Y_OFFSET = 0.1;  // ค่า offset สำหรับความเอียงของเส้นความยาวลำตัว
   
   Interpreter? _interpreter;
   bool _modelLoaded = false;
@@ -378,37 +383,38 @@ class CattleDetector {
                 int correctedClassId;
                     
                   // แก้ไขการแมปค่า classId
+                  // แก้ไขการแมปค่า classId
                   if (classId == 0) {
-                    correctedClassId = 0;
+                      correctedClassId = 2;  // หากโมเดลตรวจจับเป็น classId 0 ให้เป็น Body Length (2)
                   } else if (classId == 1) {
-                    correctedClassId = 1;
+                      correctedClassId = 0;  // หากโมเดลตรวจจับเป็น classId 1 ให้เป็น Yellow Mark (0)
                   } else if (classId == 2) {
-                    correctedClassId = 2;
+                      correctedClassId = 1;  // หากโมเดลตรวจจับเป็น classId 2 ให้เป็น Heart Girth (1)
                   } else {
                     correctedClassId = classId;  // กรณีอื่นๆ ให้คงเดิม
                   }
                 
                 // กำหนดประเภทของกรอบตามคลาสและกำหนดพิกัดใหม่ตามที่ต้องการ:
                 if (correctedClassId == 0) {  // Yellow_mark: เส้นแนวนอนตามความยาวของไม้ที่แปะเทป
-                  // ใช้ขอบซ้ายและขอบขวาของบ็อกซ์เป็นจุดเริ่มต้นและจุดสิ้นสุดของเส้น
+                  // ยังคงใช้ตามเดิม - ใช้ขอบซ้ายและขอบขวาของบ็อกซ์
                   x1 = boxX1;
-                  y1 = (boxY1 + boxY2) / 2;  // ใช้ความสูงกึ่งกลางของบ็อกซ์
+                  y1 = (boxY1 + boxY2) / 2;
                   x2 = boxX2;
-                  y2 = y1;  // เส้นแนวนอน
+                  y2 = y1;
                 } 
                 else if (correctedClassId == 1) {  // Heart_Girth: เส้นแนวตั้งตามรอบอกของโค
-                  // ใช้ความสูงของบ็อกซ์เป็นเส้นตรงแนวตั้ง
-                  x1 = (boxX1 + boxX2) / 2;  // ใช้ความกว้างกึ่งกลางของบ็อกซ์
-                  y1 = boxY1;  // จุดบนสุดของบ็อกซ์
-                  x2 = x1;  // เส้นแนวตั้ง
-                  y2 = boxY2;  // จุดล่างสุดของบ็อกซ์
+                  // ปรับให้อยู่ทางซ้ายมากขึ้น (ขยับเข้าไปในตัวโค)
+                  x1 = boxX1 + (boxX2 - boxX1) * 0.3;  // ขยับไปทางซ้ายประมาณ 30% ของความกว้างบ็อกซ์
+                  y1 = boxY1;
+                  x2 = x1;
+                  y2 = boxY2;
                 } 
-                else if (correctedClassId == 2) {  // Body_Length: เส้นแนวนอนจากไหล่ถึงสะโพกโค
-                  // ใช้ขอบซ้ายและขอบขวาของบ็อกซ์เป็นจุดเริ่มต้นและจุดสิ้นสุดของเส้น
-                  x1 = boxX1;  // จุดซ้ายสุดของบ็อกซ์
-                  y1 = (boxY1 + boxY2) / 2;  // ใช้ความสูงกึ่งกลางของบ็อกซ์
-                  x2 = boxX2;  // จุดขวาสุดของบ็อกซ์
-                  y2 = y1;  // เส้นแนวนอน
+                else if (correctedClassId == 2) {  // Body_Length: เส้นแนวเฉียงจากไหล่ถึงสะโพกโค
+                  // ปรับให้เป็นเส้นเฉียงจากซ้ายล่างไปขวาบน ตามโครงสร้างของโค
+                  x1 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_START_X; // เริ่มต้นที่ซ้ายล่าง (ใกล้ไหล่)
+                  y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET; // ปรับตำแหน่ง y ให้ต่ำลงเล็กน้อย
+                  x2 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_END_X; // สิ้นสุดที่ขวาบน (ใกล้สะโพก)
+                  y2 = (boxY1 + boxY2) / 2 - (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET; // ปรับตำแหน่ง y ให้สูงขึ้นเล็กน้อย
                 } 
                 else {
                   // ใช้บ็อกซ์ตามปกติสำหรับวัตถุที่ไม่รู้จัก
