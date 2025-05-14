@@ -14,7 +14,7 @@ class ManualMeasurementPainter extends CustomPainter {
   final double zoomScale;
   final double anchorPointRadius; // เพิ่มตัวแปรสำหรับขนาดจุดยึด (หมุด)
   final double pinScale; // ใช้ scale แทน boolean animation
-   final bool showOriginalBoxes;
+  final bool showOriginalBoxes;
 
   ManualMeasurementPainter({
     required this.image,
@@ -74,9 +74,6 @@ class ManualMeasurementPainter extends CustomPainter {
     // คำนวณพิกัดเพื่อวางภาพไว้ตรงกลาง
     offsetX = (size.width - image!.width * baseScale) / 2;
     offsetY = (size.height - image!.height * baseScale) / 2;
-
-    // เพิ่มฟลแล็กการแสดงกรอบต้นฉบับ
-    final bool showOriginalBoxes = true; // สามารถเพิ่มเป็นพารามิเตอร์ของคลาสได้
     
     // วาดกรอบตรวจจับต้นฉบับ (bounding boxes)
     if (showOriginalBoxes) {
@@ -93,7 +90,7 @@ class ManualMeasurementPainter extends CustomPainter {
         Rect detectionBox;
         
         // ในกรณีของเส้น เราต้องสร้างกรอบรอบๆ เส้น
-        if (obj.classId == 0) { // Yellow Mark (แนวนอน)
+        if (obj.classId == 0) { // จุดอ้างอิง (Yellow Mark) - แนวนอน
           // สร้างกรอบยาวตามแนวนอน
           detectionBox = Rect.fromLTWH(
             offsetX + (obj.x1 - 10) * baseScale, 
@@ -101,7 +98,7 @@ class ManualMeasurementPainter extends CustomPainter {
             (obj.x2 - obj.x1 + 20) * baseScale, 
             40 * baseScale
           );
-        } else if (obj.classId == 1) { // Heart Girth (แนวตั้ง)
+        } else if (obj.classId == 1) { // รอบอก (Heart Girth) - แนวตั้ง
           // สร้างกรอบสูงตามแนวตั้ง
           detectionBox = Rect.fromLTWH(
             offsetX + (obj.x1 - 20) * baseScale, 
@@ -109,7 +106,7 @@ class ManualMeasurementPainter extends CustomPainter {
             40 * baseScale, 
             (obj.y2 - obj.y1) * baseScale
           );
-        } else if (obj.classId == 2) { // Body Length (แนวนอน)
+        } else if (obj.classId == 2) { // ความยาวลำตัว (Body Length) - แนวนอน/เฉียง
           // สร้างกรอบยาวตามแนวนอน
           detectionBox = Rect.fromLTWH(
             offsetX + obj.x1 * baseScale, 
@@ -183,13 +180,13 @@ class ManualMeasurementPainter extends CustomPainter {
       // เลือกสีตามประเภทของวัตถุ
       Paint paint;
       switch (obj.classId) {
-        case 0: // Yellow Mark (จุดอ้างอิง)
+        case 0: // จุดอ้างอิง (Yellow Mark)
           paint = yellowMarkPaint;
           break;
-        case 1: // Heart Girth (รอบอก)
+        case 1: // รอบอก (Heart Girth)
           paint = heartGirthPaint;
           break;
-        case 2: // Body Length (ความยาวลำตัว)
+        case 2: // ความยาวลำตัว (Body Length)
           paint = bodyLengthPaint;
           break;
         default:
@@ -214,7 +211,7 @@ class ManualMeasurementPainter extends CustomPainter {
         paint..strokeWidth = 4
       );
       
-      // วาดจุดยึดที่ปลายทั้งสองด้าน (แบบใหม่)
+      // วาดจุดยึดที่ปลายทั้งสองด้าน
       _drawAnchorPoint(canvas, Offset(x1, y1), paint, i == selectedIndex);
       _drawAnchorPoint(canvas, Offset(x2, y2), paint, i == selectedIndex);
       
@@ -238,13 +235,13 @@ class ManualMeasurementPainter extends CustomPainter {
       // ปรับตำแหน่งป้ายกำกับตามประเภทของเส้น
       double labelX, labelY;
       
-      if (obj.classId == 0) { // Yellow Mark (จุดอ้างอิง)
+      if (obj.classId == 0) { // จุดอ้างอิง (Yellow Mark)
         labelX = x1;
         labelY = y1 - 30; // แสดงเหนือเส้น
-      } else if (obj.classId == 1) { // Heart Girth (รอบอก)
+      } else if (obj.classId == 1) { // รอบอก (Heart Girth)
         labelX = x1 - 15; // ขยับไปทางซ้ายเล็กน้อย
         labelY = y1 - 5; // แสดงด้านบนของเส้น
-      } else { // Body Length (ความยาวลำตัว)
+      } else { // ความยาวลำตัว (Body Length)
         labelX = x1;
         labelY = y1 - 30; // แสดงเหนือเส้น
       }
@@ -387,7 +384,7 @@ class ManualMeasurementPainter extends CustomPainter {
     final double pinHeight = anchorPointRadius * 2.5; // ขนาดความสูง
     
     // คำนวณขนาดเมื่อมีแอนิเมชัน
-    final double animationScale = isSelected && isSelected ? 1.2 : 1.0;
+    final double animationScale = isSelected ? pinScale : 1.0;
     final double animatedPinWidth = pinWidth * animationScale;
     final double animatedPinHeight = pinHeight * animationScale;
     
@@ -523,6 +520,7 @@ class ManualMeasurementPainter extends CustomPainter {
            oldDelegate.currentEditingObject != currentEditingObject ||
            oldDelegate.zoomScale != zoomScale || 
            oldDelegate.anchorPointRadius != anchorPointRadius ||
-           oldDelegate.pinScale != pinScale; // ตรวจสอบ pinScale แทน isPinAnimating
+           oldDelegate.pinScale != pinScale ||
+           oldDelegate.showOriginalBoxes != showOriginalBoxes;
   }
 }

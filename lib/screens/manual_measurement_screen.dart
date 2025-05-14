@@ -867,11 +867,11 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
   String _getLabelByClassId(int classId) {
     switch (classId) {
       case 0:
-        return 'จุดอ้างอิง'; 
+        return 'จุดอ้างอิง'; // Yellow Mark
       case 1:
-        return 'รอบอก'; 
+        return 'รอบอก'; // Heart Girth
       case 2:
-        return 'ความยาวลำตัว'; 
+        return 'ความยาวลำตัว'; // Body Length
       default:
         return 'ไม่ทราบประเภท';
     }

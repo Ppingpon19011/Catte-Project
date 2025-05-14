@@ -8,18 +8,19 @@ import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import '../utils/enhanced_measurement_painter.dart';
 
-// เป็นคลาสที่ใช้ในการตรวจจับโคด้วย ML Model
+/// คลาสสำหรับตรวจจับโคด้วยโมเดล YOLOv8 แปลงเป็น TFLite
 class CattleDetector {
-  // แก้ไขชื่อไฟล์ให้ตรงกับที่กำหนดใน pubspec.yaml
+  // ชื่อไฟล์โมเดลที่ใช้ (ให้ตรงกับที่กำหนดใน pubspec.yaml)
   static const String MODEL_FILE_NAME = 'best_model_float32.tflite';
   static const int INPUT_SIZE = 640; // ขนาด input ของโมเดล YOLOv8
 
-  // คงค่าตามที่คุณกำหนด แต่ควรตรวจสอบอีกครั้ง
+  // ค่าคงที่สำหรับการวางตำแหน่งเส้น
   static const double HEART_GIRTH_X_OFFSET = 0.3;  
   static const double BODY_LENGTH_START_X = 0.1;   
   static const double BODY_LENGTH_END_X = 0.9;     
   static const double BODY_LENGTH_Y_OFFSET = 0.1;  
   
+  // คลาสสำหรับรันโมเดล TFLite
   Interpreter? _interpreter;
   bool _modelLoaded = false;
   
@@ -28,9 +29,10 @@ class CattleDetector {
   factory CattleDetector() => _instance;
   CattleDetector._internal();
   
-  // ตรวจสอบและโหลดโมเดล
+  /// โหลดโมเดล TFLite จาก assets หรือพื้นที่เก็บข้อมูลถาวร
   Future<bool> loadModel() async {
     try {
+      // ตรวจสอบว่าโหลดโมเดลไว้แล้วหรือไม่
       if (_modelLoaded && _interpreter != null) {
         print('โมเดลถูกโหลดแล้ว กำลังใช้งานโมเดลที่โหลดไว้');
         return true;
@@ -64,9 +66,10 @@ class CattleDetector {
         
         // สร้าง interpreter options
         final options = InterpreterOptions();
-        options.threads = 4;
+        options.threads = 4; // ใช้ 4 threads สำหรับการประมวลผล
         
         try {
+            // สร้าง Interpreter จากไฟล์
             _interpreter = await Interpreter.fromFile(modelFile, options: options);
             _modelLoaded = true;
             print('โหลดโมเดลสำเร็จจาก: $modelPath');
@@ -104,8 +107,8 @@ class CattleDetector {
       return false;
     }
   }
-  
-  // ฟังก์ชันสำหรับการตรวจจับโคจากภาพ
+
+  /// ตรวจจับโคจากไฟล์ภาพ และรายละเอียดวัตถุที่ตรวจพบ
   Future<DetectionResult> detectCattle(File imageFile) async {
     try {
       // โหลดโมเดลถ้ายังไม่ได้โหลด
@@ -142,33 +145,35 @@ class CattleDetector {
         var inputTensor = _imageToTensor(resizedImage);
         
         try {
-          // ตรวจสอบรูปแบบ output ของโมเดล
+          // ดึงข้อมูลเกี่ยวกับ output shape ของโมเดล
           var outputShape = _interpreter!.getOutputTensor(0).shape;
           print('รูปแบบ output tensor: $outputShape');
           
-          // สร้าง output buffer ตามขนาดที่ถูกต้อง
+          // สร้าง buffer สำหรับเก็บผลลัพธ์
           var outputBuffer;
           
           // สร้าง buffer ที่เหมาะสมกับโมเดล YOLOv8
           if (outputShape.length == 3) {
-            print('กำลังสร้าง tensor 3 มิติขนาด ${outputShape[0]}x${outputShape[1]}x${outputShape[2]}');
+            // รูปแบบ [1, 84, 8400] สำหรับ YOLOv8
+            final int rows = outputShape[1]; // คาดว่าเป็น 84 (4+1+คลาส)
+            final int cols = outputShape[2]; // คาดว่าเป็น 8400 (จำนวนการทำนาย)
             
-            // สร้าง nested lists ตามขนาด tensor 3 มิติ
-            outputBuffer = List<List<List<dynamic>>>.filled(
-              outputShape[0],
-              List<List<dynamic>>.filled(
-                outputShape[1],
-                List<dynamic>.filled(outputShape[2], 0.0),
+            print('กำลังสร้าง tensor 3 มิติขนาด ${outputShape[0]}x${rows}x${cols}');
+            outputBuffer = List.filled(
+              outputShape[0], 
+              List.filled(
+                rows,
+                List.filled(cols, 0.0, growable: false),
                 growable: false
               ),
               growable: false
             );
           } else if (outputShape.length == 2) {
+            // รูปแบบ [84, 8400] สำหรับบางเวอร์ชัน
             print('กำลังสร้าง tensor 2 มิติขนาด ${outputShape[0]}x${outputShape[1]}');
-            
-            outputBuffer = List<List<dynamic>>.filled(
+            outputBuffer = List.filled(
               outputShape[0],
-              List<dynamic>.filled(outputShape[1], 0.0, growable: false),
+              List.filled(outputShape[1], 0.0, growable: false),
               growable: false
             );
           } else {
@@ -185,6 +190,31 @@ class CattleDetector {
           try {
             _interpreter!.run(inputTensor, outputBuffer);
             print('รัน inference สำเร็จ');
+            
+            // แสดงตัวอย่างค่าใน outputBuffer เพื่อดีบัก
+            print('ตัวอย่างค่าใน outputBuffer:');
+            if (outputShape.length == 3) {
+              print('ตัวอย่างค่า [0][0][0]: ${outputBuffer[0][0][0]}');
+              print('ตัวอย่างค่า [0][4][0]: ${outputBuffer[0][4][0]}');
+              
+              // เพิ่มการแสดงค่าในช่วงคลาส
+              if (outputBuffer[0].length > 5) {
+                for (int i = 5; i < math.min(8, outputBuffer[0].length); i++) {
+                  print('ตัวอย่างค่าคลาส [0][$i][0]: ${outputBuffer[0][i][0]}');
+                }
+              }
+            } else if (outputShape.length == 2) {
+              print('ตัวอย่างค่า [0][0]: ${outputBuffer[0][0]}');
+              print('ตัวอย่างค่า [4][0]: ${outputBuffer[4][0]}');
+              
+              // เพิ่มการแสดงค่าในช่วงคลาส
+              if (outputBuffer.length > 5) {
+                for (int i = 5; i < math.min(8, outputBuffer.length); i++) {
+                  print('ตัวอย่างค่าคลาส [$i][0]: ${outputBuffer[i][0]}');
+                }
+              }
+            }
+            
           } catch (runError) {
             print('ไม่สามารถรัน inference ได้: $runError');
             return DetectionResult(
@@ -193,9 +223,15 @@ class CattleDetector {
             );
           }
           
-          // แปลงผลลัพธ์เป็น DetectedObject
-          List<DetectedObject> detectionResults = _processOutput(outputBuffer, image.width, image.height, confidenceThreshold: 0.15);
+          // แปลงผลลัพธ์เป็น DetectedObject - ลดค่า confidence threshold ลงเพื่อให้ตรวจจับได้ง่ายขึ้น
+          List<DetectedObject> detectionResults = _processOutput(
+            outputBuffer, 
+            image.width, 
+            image.height, 
+            confidenceThreshold: 0.15 // ลดค่าความเชื่อมั่นลงเพื่อให้ตรวจจับได้ง่ายขึ้น
+          );
           
+          // ตรวจสอบผลการตรวจจับ
           if (detectionResults.isEmpty) {
             print('ไม่พบวัตถุในภาพ กรุณาวัดด้วยตนเอง');
             return DetectionResult(
@@ -204,11 +240,61 @@ class CattleDetector {
             );
           }
           
+          // ตรวจสอบว่าพบวัตถุแต่ละประเภทหรือไม่
+          bool hasYellowMark = false;
+          bool hasHeartGirth = false; 
+          bool hasBodyLength = false;
+          
+          for (var obj in detectionResults) {
+            if (obj.classId == 0) hasYellowMark = true;       // จุดอ้างอิง
+            else if (obj.classId == 1) hasHeartGirth = true;  // รอบอก
+            else if (obj.classId == 2) hasBodyLength = true;  // ความยาวลำตัว
+          }
+          
+          print('ผลการตรวจจับ:');
+          print('- จุดอ้างอิง: ${hasYellowMark ? "พบ" : "ไม่พบ"}');
+          print('- รอบอก: ${hasHeartGirth ? "พบ" : "ไม่พบ"}');
+          print('- ความยาวลำตัว: ${hasBodyLength ? "พบ" : "ไม่พบ"}');
+          
+          // ถ้าตรวจพบวัตถุไม่ครบทั้ง 3 ประเภท ให้พยายามใช้ตรวจจับด้วยความเชื่อมั่นที่ต่ำลงอีก
+          if (!hasYellowMark || !hasHeartGirth || !hasBodyLength) {
+            print('ตรวจพบวัตถุไม่ครบ พยายามปรับลดค่าความเชื่อมั่นลงอีก');
+            // ลองใช้ค่า confidence ที่ต่ำมากเพื่อให้ตรวจพบได้มากขึ้น
+            List<DetectedObject> moreDetections = _processOutput(
+              outputBuffer, 
+              image.width, 
+              image.height, 
+              confidenceThreshold: 0.05 // ลดลงเหลือ 5%
+            );
+            
+            // เพิ่มวัตถุที่ยังไม่พบเข้าไป
+            for (var obj in moreDetections) {
+              bool isDuplicate = false;
+              for (var existingObj in detectionResults) {
+                if (obj.classId == existingObj.classId) {
+                  isDuplicate = true;
+                  break;
+                }
+              }
+              
+              if (!isDuplicate) {
+                detectionResults.add(obj);
+                print('เพิ่มวัตถุพิเศษ: ${obj.className} (ความเชื่อมั่น: ${(obj.confidence * 100).toStringAsFixed(1)}%)');
+                
+                // อัปเดตสถานะการตรวจพบ
+                if (obj.classId == 0) hasYellowMark = true;
+                else if (obj.classId == 1) hasHeartGirth = true;
+                else if (obj.classId == 2) hasBodyLength = true;
+              }
+            }
+          }
+          
           return DetectionResult(
             success: true,
             objects: detectionResults,
           );
-        } catch (e) {
+
+          } catch (e) {
           print('เกิดข้อผิดพลาดในการประมวลผล output: $e');
           return DetectionResult(
             success: false,
@@ -231,24 +317,28 @@ class CattleDetector {
     }
   }
 
-  // แปลงรูปภาพเป็น tensor
+  /// แปลงรูปภาพเป็น tensor สำหรับโมเดล YOLOv8
   List<List<List<List<double>>>> _imageToTensor(img.Image image) {
     try {
       print('กำลังแปลงรูปภาพเป็น tensor...');
       
       // สร้าง tensor เริ่มต้นขนาด [1, INPUT_SIZE, INPUT_SIZE, 3]
-      var tensor = List.generate(
+      var tensor = List.filled(
         1, // batch size
-        (_) => List.generate(
+        List.filled(
           INPUT_SIZE, // height
-          (_) => List.generate(
+          List.filled(
             INPUT_SIZE, // width
-            (_) => List.generate(
+            List.filled(
               3, // channels (RGB)
-              (_) => 0.0,
+              0.0,
+              growable: false
             ),
+            growable: false
           ),
+          growable: false
         ),
+        growable: false
       );
       
       // แปลงรูปภาพเป็น tensor
@@ -285,237 +375,369 @@ class CattleDetector {
       
       // สร้าง tensor เริ่มต้นในกรณีที่มีข้อผิดพลาด
       print('สร้าง tensor เริ่มต้นแทน');
-      return List.generate(
+      return List.filled(
         1, // batch size
-        (_) => List.generate(
+        List.filled(
           INPUT_SIZE, // height
-          (_) => List.generate(
+          List.filled(
             INPUT_SIZE, // width
-            (_) => List.generate(
+            List.filled(
               3, // channels (RGB)
-              (_) => 0.0,
+              0.0,
+              growable: false
             ),
+            growable: false
           ),
+          growable: false
         ),
+        growable: false
       );
     }
   }
   
-  // แปลง output จาก YOLOv8 เป็น DetectedObject
-  List<DetectedObject> _processOutput(dynamic outputData, int imageWidth, int imageHeight, {double confidenceThreshold = 0.01}) {  
+  /// แปลง output จากโมเดล YOLOv8 เป็นรายการวัตถุที่ตรวจพบ
+  List<DetectedObject> _processOutput(dynamic outputData, int imageWidth, int imageHeight, {double confidenceThreshold = 0.25}) {  
     List<DetectedObject> detectedObjects = [];
     
     try {
       print('กำลังประมวลผล output จากโมเดล...');
+      print('รูปแบบ outputData: ${outputData.runtimeType}');
       
-      // ตรวจสอบว่า outputData มีโครงสร้างที่ถูกต้อง
-      if (outputData is List && outputData.length > 0) {
-        print('รูปแบบ outputData: ${outputData.runtimeType}');
+      // ตรวจสอบโครงสร้างของ outputData
+      if (outputData is List) {
+        print('จำนวนมิติของ outputData: ${outputData.length}');
         
-        // YOLOv8 มีรูปแบบ output เป็น [1, 7, 33600]
-        // เมื่อ 7 คือ [x, y, w, h, confidence, class_score1, class_score2]
-        var boxes;
-        if (outputData[0] is List) {
-          boxes = outputData[0];
-          print('พบชุดข้อมูลในรูปแบบแรก [batch, data]');
-        } else {
-          boxes = outputData;
-          print('พบชุดข้อมูลในรูปแบบที่สอง [data]');
-        }
+        // แก้ไขการประมวลผลสำหรับ YOLOv8 ในรูปแบบ TFLite
+        // YOLOv8 ในรูปแบบ TFLite มักจะมี output ในรูปแบบ [1, 84, 8400] หรือ [84, 8400]
         
-        if (boxes is List && boxes.length >= 5) {
-          print('จำนวนมิติของ boxes: ${boxes.length}');
-          
-          var dataLength = 0;
-          if (boxes[0] is List) {
-            dataLength = boxes[0].length;
-            print('จำนวนบ็อกซ์ที่ตรวจพบ: $dataLength');
-          } else {
-            print('ไม่พบข้อมูลบ็อกซ์ในรูปแบบที่เข้าใจได้');
-            return [];
+        try {
+          // กรณี 1: รูปแบบ [1, 84, 8400]
+          if (outputData.length == 1 && outputData[0] is List) {
+            print('กำลังประมวลผลในรูปแบบ [1, 84, 8400]');
+            return _processYoloV8Output(outputData[0], imageWidth, imageHeight, confidenceThreshold);
           }
-          
-          // เก็บวัตถุที่ตรวจพบทั้งหมดก่อนกรอง
-          List<DetectedObject> allDetectedObjects = [];
-          
-          for (int i = 0; i < dataLength; i++) {
-            try {
-              double confidence = boxes[4][i].toDouble();
+          // กรณี 2: รูปแบบ [84, 8400]
+          else if (outputData.length > 5 && outputData[0] is List) { // คาดว่ามี 84 แถว
+            print('กำลังประมวลผลในรูปแบบ [84, 8400]');
+            return _processYoloV8Output(outputData, imageWidth, imageHeight, confidenceThreshold);
+          }
+          // กรณี 3: รูปแบบอื่นๆ ที่ไม่รู้จัก
+          else {
+            print('รูปแบบข้อมูลไม่ตรงกับที่คาดหวัง ลองวิเคราะห์เพิ่มเติม');
+            // ดีบักเพื่อเข้าใจรูปแบบข้อมูล
+            _debugOutputFormat(outputData);
+            
+            // ลองใช้วิธี fallback ถ้ามี
+            if (outputData[0] is List) {
+              print('ลองใช้การประมวลผลแบบ fallback');
+              return _processFallbackOutput(outputData, imageWidth, imageHeight, confidenceThreshold);
+            } else if (outputData is List<dynamic>) {
+              // ถ้า outputData เป็น List<dynamic> แต่ต้องการ List<List<dynamic>>
+              // ลองแปลงข้อมูลให้เป็นรูปแบบที่ถูกต้อง
+              print('พยายามแปลงรูปแบบข้อมูลให้ตรงกับที่ต้องการ');
               
-              if (confidence >= confidenceThreshold) {
-                // หาประเภทของวัตถุ
-                List<double> classScores = [];
-                for (int j = 5; j < boxes.length; j++) {
-                  classScores.add(boxes[j][i].toDouble());
-                }
+              // สร้าง List<List<dynamic>> จาก List<dynamic>
+              List<List<dynamic>> convertedData = [];
+              
+              // ตรวจสอบโครงสร้างข้อมูลและแปลงตามความเหมาะสม
+              if (outputData.length > 0) {
+                // สำหรับ YOLOv8 แบบ 1 มิติ
+                // [box1, box2, box3, ...] โดยแต่ละ box มีข้อมูล 7 ตัว (x, y, w, h, conf, class1, class2)
+                int boxSize = 7; // จำนวนค่าต่อ box
                 
-                // หาคลาสที่มีคะแนนสูงสุด
-                int classId = 0;
-                double maxScore = 0;
-                for (int j = 0; j < classScores.length; j++) {
-                  if (classScores[j] > maxScore) {
-                    maxScore = classScores[j];
-                    classId = j;
+                if (outputData.length % boxSize == 0) {
+                  int numBoxes = outputData.length ~/ boxSize;
+                  
+                  // จัดเรียงข้อมูลใหม่
+                  for (int i = 0; i < boxSize; i++) {
+                    List<dynamic> row = [];
+                    for (int j = 0; j < numBoxes; j++) {
+                      row.add(outputData[j * boxSize + i]);
+                    }
+                    convertedData.add(row);
                   }
+                  
+                  return _processYoloV8Output(convertedData, imageWidth, imageHeight, confidenceThreshold);
                 }
-                
-                // ดึงค่าพิกัดของบ็อกซ์
-                double x = boxes[0][i].toDouble();
-                double y = boxes[1][i].toDouble();
-                double w = boxes[2][i].toDouble();
-                double h = boxes[3][i].toDouble();
-                
-                // แปลงเป็นพิกัด x1, y1, x2, y2 ตามการตรวจจับจริง
-                double boxX1 = (x - w / 2) * imageWidth;
-                double boxY1 = (y - h / 2) * imageHeight;
-                double boxX2 = (x + w / 2) * imageWidth;
-                double boxY2 = (y + h / 2) * imageHeight;
-                
-                // จำกัดพิกัดไม่ให้เกินขอบภาพ
-                boxX1 = Math.max(0, Math.min(boxX1, imageWidth.toDouble()));
-                boxY1 = Math.max(0, Math.min(boxY1, imageHeight.toDouble()));
-                boxX2 = Math.max(0, Math.min(boxX2, imageWidth.toDouble()));
-                boxY2 = Math.max(0, Math.min(boxY2, imageHeight.toDouble()));
-                
-                // ประกาศตัวแปรสำหรับเก็บพิกัดเส้น
-                double x1, y1, x2, y2;
-
-                // *** แก้ไขการแมป classId ให้ตรงตามที่ระบุในโจทย์ ***
-                // Yellow_Mark: classId=2
-                // Heart Girth: classId=1
-                // Body Length: classId=0
-                
-                int correctClassId;
-                if (classId == 0) {
-                    correctClassId = 0;      // Body Length (ตามโจทย์ classId=0)
-                } else if (classId == 1) {
-                    correctClassId = 1;      // Heart Girth (ตามโจทย์ classId=1)
-                } else if (classId == 2) {
-                    correctClassId = 2;      // Yellow Mark (ตามโจทย์ classId=2)
-                } else {
-                    correctClassId = classId; // กรณีอื่นๆ คงเดิม
-                }
-                
-                // กำหนดประเภทของกรอบตามคลาสและกำหนดพิกัดใหม่ตามที่ต้องการ:
-                if (correctClassId == 2) {  // Yellow_mark: เส้นแนวนอนตามความยาวของไม้ที่แปะเทป
-                  // ยังคงใช้ตามเดิม - ใช้ขอบซ้ายและขอบขวาของบ็อกซ์
-                  x1 = boxX1;
-                  y1 = (boxY1 + boxY2) / 2;
-                  x2 = boxX2;
-                  y2 = y1;
-                } 
-                else if (correctClassId == 1) {  // Heart_Girth: เส้นแนวตั้งตามรอบอกของโค
-                  // ปรับให้อยู่ทางซ้ายมากขึ้น (ขยับเข้าไปในตัวโค)
-                  x1 = boxX1 + (boxX2 - boxX1) * 0.3;  // ขยับไปทางซ้ายประมาณ 30% ของความกว้างบ็อกซ์
-                  y1 = boxY1;
-                  x2 = x1;
-                  y2 = boxY2;
-                } 
-                else if (correctClassId == 0) {  // Body_Length: เส้นแนวเฉียงจากไหล่ถึงสะโพกโค
-                  // ปรับให้เป็นเส้นเฉียงจากซ้ายล่างไปขวาบน ตามโครงสร้างของโค
-                  x1 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_START_X; // เริ่มต้นที่ซ้ายล่าง (ใกล้ไหล่)
-                  y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET; // ปรับตำแหน่ง y ให้ต่ำลงเล็กน้อย
-                  x2 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_END_X; // สิ้นสุดที่ขวาบน (ใกล้สะโพก)
-                  y2 = (boxY1 + boxY2) / 2 - (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET; // ปรับตำแหน่ง y ให้สูงขึ้นเล็กน้อย
-                } 
-                else {
-                  // ใช้บ็อกซ์ตามปกติสำหรับวัตถุที่ไม่รู้จัก
-                  x1 = boxX1;
-                  y1 = boxY1;
-                  x2 = boxX2;
-                  y2 = boxY2;
-                }
-
-                String className = '';
-                if (correctClassId == 0) {
-                  className = "Body_Length";
-                } else if (correctClassId == 1) {
-                  className = "Heart_Girth";
-                } else if (correctClassId == 2) {
-                  className = "Yellow_Mark";
-                } else {
-                  className = "Unknown_${correctClassId}";
-                }
-
-                // พิมพ์ค่าเพื่อตรวจสอบการแมป classId
-                print('การแมปค่า classId: จากโมเดล=$classId แก้ไขเป็น=$correctClassId ($className)');
-                
-                // เพิ่มวัตถุที่ตรวจพบ
-                allDetectedObjects.add(DetectedObject(
-                  classId: correctClassId,
-                  className: className,
-                  confidence: confidence,
-                  x1: x1,
-                  y1: y1,
-                  x2: x2,
-                  y2: y2,
-                ));
-                
-                print('ตรวจพบ $className: ความเชื่อมั่น ${(confidence * 100).toStringAsFixed(1)}%');
-                print('  ตำแหน่งเส้น: (${x1.toInt()},${y1.toInt()}) - (${x2.toInt()},${y2.toInt()})');
-                print('  ขอบเขตกรอบ: (${boxX1.toInt()},${boxY1.toInt()}) - (${boxX2.toInt()},${boxY2.toInt()})');
               }
-            } catch (boxError) {
-              print('เกิดข้อผิดพลาดในการประมวลผลบ็อกซ์ที่ $i: $boxError');
-              continue; // ข้ามไปทำบ็อกซ์ถัดไป
             }
           }
-          
-          // กรองผลลัพธ์โดยเลือกเฉพาะวัตถุที่มีความเชื่อมั่นสูงสุดในแต่ละคลาส
-          Map<int, DetectedObject> bestObjects = {};
-
-          // ให้ความสำคัญกับ Yellow Mark (classId = 2) ก่อน
-          List<DetectedObject> yellowMarks = allDetectedObjects
-              .where((obj) => obj.classId == 2)  // แก้ไขตรงนี้ให้เป็น classId = 2 ตามโจทย์
-              .toList();
-
-          if (yellowMarks.isNotEmpty) {
-              // เรียงลำดับ Yellow Mark ตามความเชื่อมั่นจากมากไปน้อย
-              yellowMarks.sort((a, b) => b.confidence.compareTo(a.confidence));
-              // เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด
-              bestObjects[2] = yellowMarks.first;  // แก้ไขตรงนี้ให้เป็น key = 2
-              print('เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด: ${yellowMarks.first.confidence}');
-          }
-          
-          for (var obj in allDetectedObjects) {
-            // ข้าม Yellow Mark เพราะจัดการไปแล้ว
-            if (obj.classId == 2) continue;
-
-            if (!bestObjects.containsKey(obj.classId) || 
-                bestObjects[obj.classId]!.confidence < obj.confidence) {
-              bestObjects[obj.classId] = obj;
-            }
-          }
-          
-          // เพิ่มวัตถุที่ดีที่สุดของแต่ละคลาสลงในรายการสุดท้าย
-          detectedObjects = bestObjects.values.toList();
-
-          // เรียงลำดับวัตถุตาม classId
-          detectedObjects.sort((a, b) => a.classId.compareTo(b.classId));
-
-        } else {
-          print('รูปแบบข้อมูลไม่ตรงกับที่คาดหวัง');
-          return [];
+        } catch (formatError) {
+          print('เกิดข้อผิดพลาดในการวิเคราะห์รูปแบบ output: $formatError');
         }
-      } else {
-        print('ไม่พบข้อมูล output ที่ถูกต้อง');
-        return [];
       }
       
-      // หากยังไม่พบวัตถุใดเลย ส่งรายการว่างกลับไป
-      if (detectedObjects.isEmpty) {
-        print('ไม่พบวัตถุใดเลย');
-        return [];
-      }
-      
-      return detectedObjects;
+      print('ไม่พบรูปแบบ output ที่รองรับ');
+      return [];
     } catch (e) {
       print('เกิดข้อผิดพลาดในการประมวลผล output: $e');
       return [];
     }
   }
+
+  /// ประมวลผล output จากโมเดล YOLOv8 และแปลงเป็นรายการวัตถุที่ตรวจพบ
+  List<DetectedObject> _processYoloV8Output(dynamic output, int imageWidth, int imageHeight, double confidenceThreshold) {
+    List<DetectedObject> allDetectedObjects = [];
+    
+    try {
+      // ตรวจสอบประเภทข้อมูล output และแปลงให้ถูกต้อง
+      List<List<dynamic>> formattedOutput;
+      
+      if (output is List<List<dynamic>>) {
+        // ข้อมูลมีรูปแบบที่ถูกต้องแล้ว
+        formattedOutput = output;
+      } 
+      else if (output is List<dynamic>) {
+        // ต้องแปลงเป็น List<List<dynamic>>
+        print('แปลงข้อมูลจาก List<dynamic> เป็น List<List<dynamic>>');
+        
+        formattedOutput = [];
+        for (var item in output) {
+          if (item is List<dynamic>) {
+            formattedOutput.add(item);
+          } else {
+            // กรณีที่ข้อมูลไม่ใช่ List
+            print('ข้อมูลไม่อยู่ในรูปแบบที่คาดหวัง: $item');
+            List<dynamic> newRow = [item]; // แปลงเป็น List
+            formattedOutput.add(newRow);
+          }
+        }
+      } 
+      else {
+        print('ไม่สามารถแปลงรูปแบบข้อมูลได้');
+        return [];
+      }
+      
+      // ดำเนินการประมวลผลต่อ
+      final int rows = formattedOutput.length;
+      int cols = 0;
+      
+      if (rows > 0 && formattedOutput[0] is List) {
+        cols = formattedOutput[0].length;
+      } else {
+        print('ข้อมูลไม่มีคอลัมน์ที่ถูกต้อง');
+        return [];
+      }
+      
+      print('ขนาด output หลังจากการแปลง: [$rows, $cols]');
+      
+      // ลดค่า confidence threshold ลงเพื่อให้ตรวจจับได้ง่ายขึ้น
+      double effectiveThreshold = confidenceThreshold * 0.7;  // ลดเหลือ 70% ของค่าเดิม
+      print('ปรับลดค่า confidence threshold เหลือ: $effectiveThreshold');
+
+      // จำนวนคลาสทั้งหมดในโมเดล
+      final int numClasses = rows - 5;
+      print('จำนวนคลาสทั้งหมด: $numClasses');
+      
+      // สแกนทุกวัตถุที่เป็นไปได้
+      for (int i = 0; i < cols; i++) {
+        // ตรวจสอบว่ามีข้อมูลเพียงพอ
+        if (rows <= 4 || i >= formattedOutput[0].length) {
+          continue;
+        }
+        
+        // ตรวจสอบ objectness score
+        final double objectness = formattedOutput[4][i].toDouble();
+        
+        if (objectness >= effectiveThreshold) {
+          // หาคลาสที่มีความน่าจะเป็นสูงสุด
+          int bestClassIdx = -1;
+          double bestClassScore = 0;
+          
+          for (int c = 0; c < numClasses && (5 + c) < rows; c++) {
+            double classScore = formattedOutput[5 + c][i].toDouble();
+            if (classScore > bestClassScore) {
+              bestClassScore = classScore;
+              bestClassIdx = c;
+            }
+          }
+          
+          // ถ้ามีคลาสที่มีคะแนนสูงพอ
+          if (bestClassIdx != -1 && bestClassScore * objectness >= effectiveThreshold) {
+            // ดึงค่าพิกัดกล่อง
+            double x = formattedOutput[0][i].toDouble();
+            double y = formattedOutput[1][i].toDouble();
+            double w = formattedOutput[2][i].toDouble();
+            double h = formattedOutput[3][i].toDouble();
+            
+            // แปลงเป็นพิกัด x1, y1, x2, y2 (เทียบกับภาพต้นฉบับ)
+            double boxX1 = (x - w / 2) * imageWidth;
+            double boxY1 = (y - h / 2) * imageHeight;
+            double boxX2 = (x + w / 2) * imageWidth;
+            double boxY2 = (y + h / 2) * imageHeight;
+            
+            // จำกัดพิกัดไม่ให้เกินขอบภาพ
+            boxX1 = math.max(0, math.min(boxX1, imageWidth.toDouble()));
+            boxY1 = math.max(0, math.min(boxY1, imageHeight.toDouble()));
+            boxX2 = math.max(0, math.min(boxX2, imageWidth.toDouble()));
+            boxY2 = math.max(0, math.min(boxY2, imageHeight.toDouble()));
+            
+            // แมป classId จากโมเดลเป็น classId ในแอป
+            int mappedClassId = _mapClassIdToAppId(bestClassIdx);
+            
+            // คำนวณพิกัดเส้นตามประเภทของคลาส
+            double x1, y1, x2, y2;
+            
+            // กำหนดพิกัดของเส้นตามประเภทของวัตถุหลังจากแมป
+            if (mappedClassId == 0) {  // จุดอ้างอิง (Yellow Mark)
+              // ใช้ขอบซ้ายและขอบขวาของบ็อกซ์ - เส้นแนวนอน
+              x1 = boxX1;
+              y1 = (boxY1 + boxY2) / 2;
+              x2 = boxX2;
+              y2 = y1;
+            } 
+            else if (mappedClassId == 1) {  // รอบอก (Heart Girth)
+              // เส้นแนวตั้ง
+              x1 = boxX1 + (boxX2 - boxX1) * 0.3;
+              y1 = boxY1;
+              x2 = x1;
+              y2 = boxY2;
+            } 
+            else if (mappedClassId == 2) {  // ความยาวลำตัว (Body Length)
+              // เส้นแนวเฉียงตามโครงสร้างของโค
+              x1 = boxX1 + (boxX2 - boxX1) * 0.1;
+              y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * 0.1;
+              x2 = boxX1 + (boxX2 - boxX1) * 0.9;
+              y2 = (boxY1 + boxY2) / 2 - (boxY2 - boxY1) * 0.1;
+            } 
+            else {
+              // กรณีคลาสที่ไม่รู้จัก ใช้บ็อกซ์ตามปกติ
+              x1 = boxX1;
+              y1 = boxY1;
+              x2 = boxX2;
+              y2 = boxY2;
+            }
+            
+            // กำหนดชื่อคลาสตาม mappedClassId
+            String className = _getClassNameFromId(mappedClassId);
+            
+            // เพิ่มวัตถุที่ตรวจพบ
+            allDetectedObjects.add(DetectedObject(
+              classId: mappedClassId,
+              className: className,
+              confidence: objectness * bestClassScore,
+              x1: x1,
+              y1: y1,
+              x2: x2,
+              y2: y2,
+            ));
+            
+            print('ตรวจพบ $className (Model ClassID: $bestClassIdx → App ClassID: $mappedClassId): ความเชื่อมั่น ${(objectness * bestClassScore * 100).toStringAsFixed(1)}%');
+            print('  ตำแหน่งเส้น: (${x1.toInt()},${y1.toInt()}) - (${x2.toInt()},${y2.toInt()})');
+            print('  ขอบเขตกรอบ: (${boxX1.toInt()},${boxY1.toInt()}) - (${boxX2.toInt()},${boxY2.toInt()})');
+          }
+        }
+      }
+      
+      // เรียงลำดับตามความเชื่อมั่น
+      allDetectedObjects.sort((a, b) => b.confidence.compareTo(a.confidence));
+      
+      // กรองให้เหลือเพียงวัตถุที่ดีที่สุดสำหรับแต่ละคลาส
+      Map<int, DetectedObject> bestObjectsByClass = {};
+      for (var obj in allDetectedObjects) {
+        if (!bestObjectsByClass.containsKey(obj.classId) || 
+            bestObjectsByClass[obj.classId]!.confidence < obj.confidence) {
+          bestObjectsByClass[obj.classId] = obj;
+        }
+      }
+      
+      return bestObjectsByClass.values.toList();
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการประมวลผล YOLOv8 output: $e');
+      return [];
+    }
+  }
   
-  // ปล่อยทรัพยากร
+  /// ประมวลผลแบบสำรองในกรณีที่รูปแบบ output ไม่ตรงกับที่คาดหวัง
+  List<DetectedObject> _processFallbackOutput(dynamic outputData, int imageWidth, int imageHeight, double confidenceThreshold) {
+    List<DetectedObject> detectedObjects = [];
+    
+    try {
+      // ตรวจสอบรูปแบบข้อมูลและพยายามประมวลผล
+      // ในกรณีที่รูปแบบไม่ตรงกับที่คาดหวัง
+      print('กำลังใช้การประมวลผลแบบสำรอง');
+      
+      // วิเคราะห์รูปแบบของข้อมูลเพิ่มเติม
+      _debugOutputFormat(outputData);
+      
+      // ถ้าไม่สามารถแปลงเป็นรูปแบบที่รองรับได้ ให้คืนค่าเป็นลิสต์ว่าง
+      return detectedObjects;
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการประมวลผลแบบสำรอง: $e');
+      return [];
+    }
+  }
+  
+  /// ดีบักรูปแบบข้อมูล output จากโมเดล
+  void _debugOutputFormat(dynamic outputData) {
+    try {
+      print('=== เริ่มวิเคราะห์รูปแบบ output ===');
+      
+      if (outputData is List) {
+        print('รูปแบบระดับที่ 1: List ที่มี ${outputData.length} สมาชิก');
+        
+        // แสดงตัวอย่างค่าในระดับแรก
+        if (outputData.isNotEmpty) {
+          print('ค่าแรก: ${outputData[0]}');
+          print('ค่าที่ 4 (ถ้ามี): ${outputData.length > 4 ? outputData[4] : "ไม่มีข้อมูล"}');
+          
+          // ตรวจสอบช่วงที่น่าจะเป็นคลาส (5-83)
+          if (outputData.length > 5) {
+            for (int i = 5; i < math.min(8, outputData.length); i++) {
+              print('ค่าที่ $i: ${outputData[i]}');
+            }
+          }
+          
+          var firstElement = outputData[0];
+          print('รูปแบบระดับที่ 2: ${firstElement.runtimeType}');
+          
+          if (firstElement is List) {
+            print('จำนวนสมาชิกในระดับที่ 2: ${firstElement.length}');
+            print('ตัวอย่างค่า: ${firstElement.length > 0 ? firstElement[0] : "ไม่มีข้อมูล"}');
+            
+            if (firstElement.isNotEmpty) {
+              var subElement = firstElement[0];
+              print('รูปแบบระดับที่ 3: ${subElement.runtimeType}');
+              
+              if (subElement is List) {
+                print('จำนวนสมาชิกในระดับที่ 3: ${subElement.length}');
+              }
+            }
+          }
+        }
+      }
+      
+      print('=== จบการวิเคราะห์รูปแบบ output ===');
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการวิเคราะห์รูปแบบ output: $e');
+    }
+  }
+
+  /// แก้ไขการแมป classId ระหว่างโมเดลกับแอป
+  int _mapClassIdToAppId(int modelClassId) {
+    // แมปตามลำดับคลาสใน data.yaml:
+    // 0: Body_Length - ในแอปใช้เป็น 2: ความยาวลำตัว
+    // 1: Heart_Girth - ในแอปใช้เป็น 1: รอบอก 
+    // 2: Yellow_Mark - ในแอปใช้เป็น 0: จุดอ้างอิง
+    switch (modelClassId) {
+      case 0: return 2; // Model's Body_Length -> App's ความยาวลำตัว (2)
+      case 1: return 1; // Model's Heart_Girth -> App's รอบอก (1)
+      case 2: return 0; // Model's Yellow_Mark -> App's จุดอ้างอิง (0)
+      default: return modelClassId;
+    }
+  }
+  
+  /// ดึงชื่อคลาสจาก classId ของแอป (หลังจากแมปแล้ว)
+  String _getClassNameFromId(int classId) {
+    switch (classId) {
+      case 0: return 'จุดอ้างอิง';   // Yellow Mark
+      case 1: return 'รอบอก';       // Heart Girth
+      case 2: return 'ความยาวลำตัว'; // Body Length
+      default: return 'Unknown_$classId';
+    }
+  }
+  
+  /// ปล่อยทรัพยากรเมื่อไม่ใช้งานแล้ว
   void dispose() {
     try {
       _interpreter?.close();
@@ -528,7 +750,7 @@ class CattleDetector {
   }
 }
 
-// คลาสเก็บข้อมูลวัตถุที่ตรวจพบ
+/// คลาสเก็บข้อมูลวัตถุที่ตรวจพบ
 class DetectedObject {
   final int classId;
   final String className;
@@ -576,7 +798,7 @@ class DetectedObject {
   }
 }
 
-// คลาสเก็บผลลัพธ์การตรวจจับ
+/// คลาสเก็บผลลัพธ์การตรวจจับ
 class DetectionResult {
   final bool success;
   final List<DetectedObject>? objects;

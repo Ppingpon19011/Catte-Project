@@ -88,7 +88,7 @@ class CattleMeasurementService {
     }
   }
   
-  // เพิ่มเมธอด analyzeImage สำหรับวิเคราะห์ภาพและประมาณน้ำหนัก
+  // แก้ไขเมธอด analyzeImage สำหรับวิเคราะห์ภาพและประมาณน้ำหนัก
   Future<MeasurementResult> analyzeImage(
     File imageFile,
     String breed,
@@ -105,6 +105,11 @@ class CattleMeasurementService {
           success: false,
           error: 'ไม่พบไฟล์ภาพ',
         );
+      }
+      
+      // ปรับขนาดภาพถ้าจำเป็น (ลดขนาดไฟล์ใหญ่)
+      if (options != null && options['resize'] == true) {
+        imageFile = await resizeImageForDisplay(imageFile);
       }
       
       // ใช้ CattleDetector สำหรับตรวจจับวัตถุในภาพ
@@ -129,15 +134,16 @@ class CattleMeasurementService {
       detector.DetectedObject? bodyLengthObj;
       
       for (var obj in detectionResult.objects!) {
-        if (obj.classId == 0) { // Yellow Mark
+        // แก้ไขการตรวจสอบ classId ให้ตรงกับโมเดล
+        if (obj.classId == 0) { // Yellow Mark (จุดอ้างอิง)
           hasYellowMark = true;
           yellowMarkObj = obj;
         }
-        if (obj.classId == 1) { // Heart Girth
+        if (obj.classId == 1) { // Heart Girth (รอบอก)
           hasHeartGirth = true;
           heartGirthObj = obj;
         }
-        if (obj.classId == 2) { // Body Length
+        if (obj.classId == 2) { // Body Length (ความยาวลำตัว)
           hasBodyLength = true;
           bodyLengthObj = obj;
         }
@@ -155,20 +161,44 @@ class CattleMeasurementService {
       
       // คำนวณขนาดจริงในหน่วยเซนติเมตร
       double yellowMarkWidthCm = WeightCalculator.REFERENCE_MARK_LENGTH_CM; // ความยาวจุดอ้างอิงเป็น 100 ซม.
-      double ratio = yellowMarkWidthCm / yellowMarkObj!.width;
       
-      double bodyLengthCm = bodyLengthObj!.width / ratio;
-      double heartGirthCm = heartGirthObj!.height / ratio;
+      // คำนวณระยะห่างตามแนวระหว่างจุด x1,y1 และ x2,y2 ของจุดอ้างอิง
+      double yellowMarkPixelLength = math.sqrt(
+        math.pow(yellowMarkObj!.x2 - yellowMarkObj.x1, 2) + 
+        math.pow(yellowMarkObj.y2 - yellowMarkObj.y1, 2)
+      );
+      
+      // อัตราส่วนพิกเซลต่อเซนติเมตร (ใช้สำหรับแปลงหน่วย)
+      double pixelToCmRatio = yellowMarkPixelLength / yellowMarkWidthCm;
+      
+      // ปรับปรุงวิธีการคำนวณรอบอก - ใช้ความสูงของเส้นแนวตั้ง
+      double heartGirthHeight = math.sqrt(
+        math.pow(heartGirthObj!.x2 - heartGirthObj.x1, 2) + 
+        math.pow(heartGirthObj.y2 - heartGirthObj.y1, 2)
+      );
+      
+      // คำนวณความยาวลำตัวในหน่วยเซนติเมตร
+      double bodyLengthPixels = math.sqrt(
+        math.pow(bodyLengthObj!.x2 - bodyLengthObj.x1, 2) + 
+        math.pow(bodyLengthObj.y2 - bodyLengthObj.y1, 2)
+      );
+      
+      // แปลงจากพิกเซลเป็นเซนติเมตร
+      double bodyLengthCm = bodyLengthPixels / pixelToCmRatio;
+      
+      // ปรับปรุงวิธีการคำนวณรอบอก - คำนวณเส้นรอบวงจากความสูง
+      double heartGirthCm = heartGirthHeight / pixelToCmRatio;
+      // แปลงจากความสูงเป็นรอบวง โดยใช้สูตรคำนวณเส้นรอบวง
+      double heartGirthCircumference = WeightCalculator.calculateHeartGirthFromHeight(heartGirthCm);
       
       // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว
       double bodyLengthInches = WeightCalculator.cmToInches(bodyLengthCm);
-      double heartGirthInches = WeightCalculator.cmToInches(heartGirthCm);
+      double heartGirthInches = WeightCalculator.cmToInches(heartGirthCircumference);
       
-      // คำนวณน้ำหนักโดยใช้สูตรใหม่
-      double weightInPounds = (math.pow(heartGirthInches, 2) * bodyLengthInches) / 300;
-      double weightInKg = weightInPounds * 0.453592;
+      // คำนวณน้ำหนักจาก WeightCalculator
+      double weightInKg = WeightCalculator.calculateWeight(heartGirthInches, bodyLengthInches);
       
-      // ปรับค่าตามเพศและอายุ
+      // ปรับค่าตามอายุและเพศโดยใช้ WeightCalculator
       double adjustedWeight = WeightCalculator.adjustWeightByAgeAndGender(
         weightInKg,
         gender,
@@ -180,7 +210,7 @@ class CattleMeasurementService {
       
       return MeasurementResult(
         success: true,
-        heartGirth: heartGirthCm,
+        heartGirth: heartGirthCircumference, // ใช้เส้นรอบวงที่คำนวณแล้ว
         bodyLength: bodyLengthCm,
         rawWeight: weightInKg,
         adjustedWeight: adjustedWeight,
@@ -248,43 +278,42 @@ class CattleMeasurementService {
       for (var object in detectionResult.objects!) {
         // กำหนดสีตามประเภทของวัตถุ
         img.Color color;
-        if (object.classId == 0) { // Yellow_Mark
+        if (object.classId == 0) { // Yellow_Mark (จุดอ้างอิง)
           color = img.ColorRgb8(255, 255, 0); // เหลือง
-        } else if (object.classId == 1) { // Heart_Girth
+        } else if (object.classId == 1) { // Heart_Girth (รอบอก)
           color = img.ColorRgb8(255, 0, 0); // แดง
-        } else if (object.classId == 2) { // Body_Length
+        } else if (object.classId == 2) { // Body_Length (ความยาวลำตัว)
           color = img.ColorRgb8(0, 0, 255); // น้ำเงิน
         } else {
           color = img.ColorRgb8(128, 128, 128); // เทา
         }
         
-        // วาดกรอบรอบวัตถุ
-        img.drawRect(
+        // วาดเส้นระหว่างจุดเริ่มต้นและจุดสิ้นสุด
+        img.drawLine(
           analyzedImage,
           x1: object.x1.toInt(),
           y1: object.y1.toInt(),
           x2: object.x2.toInt(),
           y2: object.y2.toInt(),
           color: color,
-          thickness: 2,
+          thickness: 3,
         );
         
-        // สร้างพื้นหลังสำหรับข้อความ
-        final colorWithAlpha = img.ColorRgba8(
-          color.r as int,
-          color.g as int,
-          color.b as int,
-          128  // ค่า alpha (0-255)
-        );
-        
-        // วาดพื้นหลังสำหรับข้อความ
-        img.fillRect(
+        // วาดจุดที่ปลายทั้งสองของเส้น
+        img.fillCircle(
           analyzedImage,
-          x1: object.x1.toInt(),
-          y1: object.y1.toInt() - 20,
-          x2: object.x1.toInt() + 100,
-          y2: object.y1.toInt(),
-          color: colorWithAlpha,
+          x: object.x1.toInt(),
+          y: object.y1.toInt(),
+          radius: 5,
+          color: color,
+        );
+        
+        img.fillCircle(
+          analyzedImage,
+          x: object.x2.toInt(),
+          y: object.y2.toInt(),
+          radius: 5,
+          color: color,
         );
       }
       
@@ -343,4 +372,3 @@ class MeasurementResult {
     };
   }
 }
-          

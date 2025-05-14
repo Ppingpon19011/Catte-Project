@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -107,6 +108,22 @@ class WeightCalculator {
   static double calculateScaleFromReference(double referenceMarkPixels) {
     if (referenceMarkPixels <= 0) return 0.0;
     return REFERENCE_MARK_LENGTH_CM / referenceMarkPixels;
+  }
+  
+  // แก้ไขการคำนวณรอบอกจากภาพวัด
+  static double calculateHeartGirthFromHeight(double heartGirthHeight) {
+    // รอบอกคือ π * ความสูงของรอบอก
+    // แทนที่จะใช้ค่าความสูงโดยตรง ให้ใช้สูตรเส้นรอบวงของวงรี
+    // สมมติให้ความกว้างของวงรีเป็น heartGirthHeight/2 
+    // และความสูงของวงรีเป็น heartGirthHeight/2
+    // เส้นรอบวงของวงรี ≈ 2π * √((a² + b²)/2) โดย a และ b คือรัศมีแกนหลักและแกนรอง
+
+    // ในกรณีนี้ เราตั้งสมมติฐานว่าวงรีของการตัดขวางลำตัวโคมีความกว้างเท่ากับความสูง
+    // ทำให้การคำนวณเหลือเพียง 2π * √((r² + r²)/2) = 2π * r
+    // ซึ่งก็คือเส้นรอบวงของวงกลม = 2πr
+
+    // นั่นคือ เราสามารถประมาณรอบอกได้จาก π * heartGirthHeight
+    return math.pi * heartGirthHeight;
   }
   
   // จำลองการประมาณจากภาพถ่าย (ในระบบจริงควรใช้ ML model)

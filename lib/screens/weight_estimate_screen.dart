@@ -367,6 +367,114 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         await _openManualMeasurement();
       }
     }
+
+    // เพิ่มฟังก์ชันแสดงผลการตรวจจับก่อนไปหน้าวัดด้วยตนเอง
+    Future<void> _showDetectionResultDialog(detector.DetectionResult detectionResult) async {
+      // ตรวจสอบว่าตรวจพบวัตถุแต่ละประเภทหรือไม่
+      bool hasYellowMark = false;
+      bool hasHeartGirth = false;
+      bool hasBodyLength = false;
+      
+      if (detectionResult.objects != null) {
+        for (var obj in detectionResult.objects!) {
+          if (obj.classId == 0) hasYellowMark = true;  // จุดอ้างอิง
+          if (obj.classId == 1) hasHeartGirth = true;  // รอบอก
+          if (obj.classId == 2) hasBodyLength = true;  // ความยาวลำตัว
+        }
+      }
+      
+      await showDialog(
+        context: _buildContext,
+        builder: (context) => AlertDialog(
+          title: Text('ผลการตรวจจับวัตถุ'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('โมเดลได้ตรวจสอบภาพและพบวัตถุดังนี้:'),
+              SizedBox(height: 12),
+              _buildDetectionStatusRow('จุดอ้างอิง (Yellow Mark)', hasYellowMark),
+              _buildDetectionStatusRow('รอบอก (Heart Girth)', hasHeartGirth),
+              _buildDetectionStatusRow('ความยาวลำตัว (Body Length)', hasBodyLength),
+              SizedBox(height: 16),
+              
+              if (!hasYellowMark || !hasHeartGirth || !hasBodyLength)
+                Text(
+                  'วัตถุบางส่วนไม่ถูกตรวจพบ คุณสามารถวัดเพิ่มเติมในหน้าถัดไป',
+                  style: TextStyle(fontStyle: FontStyle.italic, color: Colors.orange),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: Text('ยกเลิก'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _navigateToManualMeasurement();
+              },
+              child: Text('ไปหน้าวัดด้วยตนเอง'),
+            ),
+          ],
+        ),
+      );
+    }
+
+  }
+
+  Widget _buildDetectionResults() {
+    if (_detectionResult == null || _detectionResult!.objects == null) {
+      return Container();
+    }
+    
+    // ตรวจสอบว่ามีการตรวจพบวัตถุแต่ละประเภทหรือไม่
+    bool hasYellowMark = false;
+    bool hasHeartGirth = false;
+    bool hasBodyLength = false;
+    
+    for (var obj in _detectionResult!.objects!) {
+      if (obj.classId == 0) hasYellowMark = true;
+      if (obj.classId == 1) hasHeartGirth = true;
+      if (obj.classId == 2) hasBodyLength = true;
+    }
+    
+    return Container(
+      margin: EdgeInsets.only(top: 16),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'ผลการตรวจจับ:',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          SizedBox(height: 8),
+          _buildDetectionStatusRow('จุดอ้างอิง (Yellow Mark)', hasYellowMark),
+          _buildDetectionStatusRow('รอบอก (Heart Girth)', hasHeartGirth),
+          _buildDetectionStatusRow('ความยาวลำตัว (Body Length)', hasBodyLength),
+          SizedBox(height: 8),
+          if (!hasYellowMark || !hasHeartGirth || !hasBodyLength)
+            ElevatedButton.icon(
+              onPressed: _navigateToManualMeasurement,
+              icon: Icon(Icons.straighten),
+              label: Text('วัดด้วยตนเอง'),
+              style: ElevatedButton.styleFrom(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                minimumSize: Size(double.infinity, 36),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   //Widget สำหรับแสดงสถานะการตรวจจับแต่ละส่วน
