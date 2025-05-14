@@ -33,6 +33,7 @@ class _AddCattleScreenState extends State<AddCattleScreen> {
   File? _imageFile;
   String _imageAssetPath = 'assets/images/cattle_default.jpg';
   bool _isLoading = false;
+  String? _imageError;
 
   final DatabaseHelper _dbHelper = DatabaseHelper();
 
@@ -54,36 +55,65 @@ class _AddCattleScreenState extends State<AddCattleScreen> {
                     children: [
                       // ส่วนของรูปภาพ
                       Center(
-                        child: Stack(
+                        child: Column(
                           children: [
-                            Container(
-                              width: 150,
-                              height: 150,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[200],
-                                shape: BoxShape.circle,
-                                image: DecorationImage(
-                                  fit: BoxFit.cover,
-                                  image: _imageFile != null
-                                      ? FileImage(_imageFile!) as ImageProvider
-                                      : AssetImage(_imageAssetPath),
+                            Stack(
+                              children: [
+                                Container(
+                                  width: 150,
+                                  height: 150,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[200],
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: _imageError != null ? Colors.red : Colors.transparent,
+                                      width: 2,
+                                    ),
+                                    image: DecorationImage(
+                                      fit: BoxFit.cover,
+                                      image: _imageFile != null
+                                          ? FileImage(_imageFile!) as ImageProvider
+                                          : AssetImage(_imageAssetPath),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: Container(
+                                    height: 40,
+                                    width: 40,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Theme.of(context).primaryColor,
+                                    ),
+                                    child: IconButton(
+                                      padding: EdgeInsets.zero,
+                                      icon: Icon(Icons.camera_alt, color: Colors.white),
+                                      onPressed: _pickImage,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_imageError != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Text(
+                                  _imageError!,
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: Container(
-                                height: 40,
-                                width: 40,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Theme.of(context).primaryColor,
-                                ),
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  icon: Icon(Icons.camera_alt, color: Colors.white),
-                                  onPressed: _pickImage,
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: Text(
+                                '* รูปโคจำเป็นต้องมี',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 12,
                                 ),
                               ),
                             ),
@@ -341,6 +371,7 @@ class _AddCattleScreenState extends State<AddCattleScreen> {
     if (image != null) {
       setState(() {
         _imageFile = File(image.path);
+        _imageError = null; // ล้างข้อความแสดงข้อผิดพลาดเมื่อมีการเลือกรูปภาพ
       });
     }
   }
@@ -366,6 +397,26 @@ class _AddCattleScreenState extends State<AddCattleScreen> {
   }
 
   Future<void> _saveCattle() async {
+    // รีเซ็ตข้อความแสดงข้อผิดพลาดของรูปภาพ
+    setState(() {
+      _imageError = null;
+    });
+
+    // ตรวจสอบว่ามีการเลือกรูปภาพหรือไม่
+    if (_imageFile == null) {
+      setState(() {
+        _imageError = 'กรุณาเลือกรูปภาพโค';
+      });
+      // แสดง ScaffoldMessenger เพื่อแจ้งเตือนผู้ใช้
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('กรุณาเลือกรูปภาพโค'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return; // ยกเลิกการบันทึกถ้าไม่มีรูปภาพ
+    }
+
     if (_formKey.currentState!.validate()) {
       setState(() {
         _isLoading = true;

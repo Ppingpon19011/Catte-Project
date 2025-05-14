@@ -14,10 +14,11 @@ class CattleDetector {
   static const String MODEL_FILE_NAME = 'best_model_float32.tflite';
   static const int INPUT_SIZE = 640; // ขนาด input ของโมเดล YOLOv8
 
-  static const double HEART_GIRTH_X_OFFSET = 0.3;  // ค่า offset สำหรับตำแหน่ง x ของเส้นรอบอก
-  static const double BODY_LENGTH_START_X = 0.1;   // ตำแหน่งเริ่มต้น x ของเส้นความยาวลำตัว (0-1)
-  static const double BODY_LENGTH_END_X = 0.9;     // ตำแหน่งสิ้นสุด x ของเส้นความยาวลำตัว (0-1)
-  static const double BODY_LENGTH_Y_OFFSET = 0.1;  // ค่า offset สำหรับความเอียงของเส้นความยาวลำตัว
+  // คงค่าตามที่คุณกำหนด แต่ควรตรวจสอบอีกครั้ง
+  static const double HEART_GIRTH_X_OFFSET = 0.3;  
+  static const double BODY_LENGTH_START_X = 0.1;   
+  static const double BODY_LENGTH_END_X = 0.9;     
+  static const double BODY_LENGTH_Y_OFFSET = 0.1;  
   
   Interpreter? _interpreter;
   bool _modelLoaded = false;
@@ -37,63 +38,62 @@ class CattleDetector {
       
       print('เริ่มต้นโหลดโมเดล...');
       
-      // ค้นหาไฟล์โมเดลจาก assets
       try {
-            // ตรวจสอบก่อนว่ามีโมเดลในพื้นที่เก็บข้อมูลถาวรหรือไม่
-            final appDir = await getApplicationDocumentsDirectory();
-            String modelPath = '${appDir.path}/$MODEL_FILE_NAME';
-            File modelFile = File(modelPath);
+        // ตรวจสอบก่อนว่ามีโมเดลในพื้นที่เก็บข้อมูลถาวรหรือไม่
+        final appDir = await getApplicationDocumentsDirectory();
+        String modelPath = '${appDir.path}/$MODEL_FILE_NAME';
+        File modelFile = File(modelPath);
+        
+        if (await modelFile.exists()) {
+            print('พบโมเดลในพื้นที่เก็บข้อมูลถาวร: $modelPath');
+        } else {
+            // ถ้าไม่มี ให้คัดลอกจาก assets
+            print('ไม่พบโมเดลในพื้นที่เก็บข้อมูลถาวร กำลังคัดลอกจาก assets...');
+            ByteData modelData = await rootBundle.load('assets/models/$MODEL_FILE_NAME');
+            await modelFile.writeAsBytes(modelData.buffer.asUint8List());
+            print('คัดลอกโมเดลไปยังพื้นที่เก็บข้อมูลถาวร: $modelPath');
+        }
+        
+        // ตรวจสอบว่าไฟล์มีอยู่จริง
+        if (!await modelFile.exists()) {
+            print('ไม่พบไฟล์หลังจากการคัดลอก');
+            return false;
+        }
+        
+        print('ขนาดไฟล์: ${await modelFile.length()} bytes');
+        
+        // สร้าง interpreter options
+        final options = InterpreterOptions();
+        options.threads = 4;
+        
+        try {
+            _interpreter = await Interpreter.fromFile(modelFile, options: options);
+            _modelLoaded = true;
+            print('โหลดโมเดลสำเร็จจาก: $modelPath');
+          
+            // แสดงข้อมูลของโมเดลเพื่อการตรวจสอบ
+            var inputTensors = _interpreter!.getInputTensors();
+            var outputTensors = _interpreter!.getOutputTensors();
             
-            if (await modelFile.exists()) {
-                print('พบโมเดลในพื้นที่เก็บข้อมูลถาวร: $modelPath');
-            } else {
-                // ถ้าไม่มี ให้คัดลอกจาก assets
-                print('ไม่พบโมเดลในพื้นที่เก็บข้อมูลถาวร กำลังคัดลอกจาก assets...');
-                ByteData modelData = await rootBundle.load('assets/models/$MODEL_FILE_NAME');
-                await modelFile.writeAsBytes(modelData.buffer.asUint8List());
-                print('คัดลอกโมเดลไปยังพื้นที่เก็บข้อมูลถาวร: $modelPath');
+            print('จำนวน input tensor: ${inputTensors.length}');
+            print('จำนวน output tensor: ${outputTensors.length}');
+            
+            // แสดงรายละเอียดของ input tensor
+            for (var i = 0; i < inputTensors.length; i++) {
+              print('Input tensor $i shape: ${inputTensors[i].shape}');
+              print('Input tensor $i type: ${inputTensors[i].type}');
             }
             
-            // ตรวจสอบว่าไฟล์มีอยู่จริง
-            if (!await modelFile.exists()) {
-                print('ไม่พบไฟล์หลังจากการคัดลอก');
-                return false;
+            // แสดงรายละเอียดของ output tensor
+            for (var i = 0; i < outputTensors.length; i++) {
+              print('Output tensor $i shape: ${outputTensors[i].shape}');
+              print('Output tensor $i type: ${outputTensors[i].type}');
             }
             
-            print('ขนาดไฟล์: ${await modelFile.length()} bytes');
-            
-            // สร้าง interpreter options
-            final options = InterpreterOptions();
-            options.threads = 4;
-            
-            try {
-                _interpreter = await Interpreter.fromFile(modelFile, options: options);
-                _modelLoaded = true;
-          print('โหลดโมเดลสำเร็จจาก: $modelPath');
-          
-          // แสดงข้อมูลของโมเดลเพื่อการตรวจสอบ
-          var inputTensors = _interpreter!.getInputTensors();
-          var outputTensors = _interpreter!.getOutputTensors();
-          
-          print('จำนวน input tensor: ${inputTensors.length}');
-          print('จำนวน output tensor: ${outputTensors.length}');
-          
-          // แสดงรายละเอียดของ input tensor
-          for (var i = 0; i < inputTensors.length; i++) {
-            print('Input tensor $i shape: ${inputTensors[i].shape}');
-            print('Input tensor $i type: ${inputTensors[i].type}');
-          }
-          
-          // แสดงรายละเอียดของ output tensor
-          for (var i = 0; i < outputTensors.length; i++) {
-            print('Output tensor $i shape: ${outputTensors[i].shape}');
-            print('Output tensor $i type: ${outputTensors[i].type}');
-          }
-          
-          return true;
+            return true;
         } catch (interpreterError) {
-          print('เกิดข้อผิดพลาดในการสร้าง Interpreter: $interpreterError');
-          return false;
+            print('เกิดข้อผิดพลาดในการสร้าง Interpreter: $interpreterError');
+            return false;
         }
       } catch (assetError) {
         print('ไม่สามารถโหลดโมเดลจาก assets: $assetError');
@@ -380,36 +380,38 @@ class CattleDetector {
                 // ประกาศตัวแปรสำหรับเก็บพิกัดเส้น
                 double x1, y1, x2, y2;
 
-                int correctedClassId;
-                    
-                  // แก้ไขการแมปค่า classId
-                  // แก้ไขการแมปค่า classId
-                  if (classId == 0) {
-                      correctedClassId = 2;  // หากโมเดลตรวจจับเป็น classId 0 ให้เป็น Body Length (2)
-                  } else if (classId == 1) {
-                      correctedClassId = 0;  // หากโมเดลตรวจจับเป็น classId 1 ให้เป็น Yellow Mark (0)
-                  } else if (classId == 2) {
-                      correctedClassId = 1;  // หากโมเดลตรวจจับเป็น classId 2 ให้เป็น Heart Girth (1)
-                  } else {
-                    correctedClassId = classId;  // กรณีอื่นๆ ให้คงเดิม
-                  }
+                // *** แก้ไขการแมป classId ให้ตรงตามที่ระบุในโจทย์ ***
+                // Yellow_Mark: classId=2
+                // Heart Girth: classId=1
+                // Body Length: classId=0
+                
+                int correctClassId;
+                if (classId == 0) {
+                    correctClassId = 0;      // Body Length (ตามโจทย์ classId=0)
+                } else if (classId == 1) {
+                    correctClassId = 1;      // Heart Girth (ตามโจทย์ classId=1)
+                } else if (classId == 2) {
+                    correctClassId = 2;      // Yellow Mark (ตามโจทย์ classId=2)
+                } else {
+                    correctClassId = classId; // กรณีอื่นๆ คงเดิม
+                }
                 
                 // กำหนดประเภทของกรอบตามคลาสและกำหนดพิกัดใหม่ตามที่ต้องการ:
-                if (correctedClassId == 0) {  // Yellow_mark: เส้นแนวนอนตามความยาวของไม้ที่แปะเทป
+                if (correctClassId == 2) {  // Yellow_mark: เส้นแนวนอนตามความยาวของไม้ที่แปะเทป
                   // ยังคงใช้ตามเดิม - ใช้ขอบซ้ายและขอบขวาของบ็อกซ์
                   x1 = boxX1;
                   y1 = (boxY1 + boxY2) / 2;
                   x2 = boxX2;
                   y2 = y1;
                 } 
-                else if (correctedClassId == 1) {  // Heart_Girth: เส้นแนวตั้งตามรอบอกของโค
+                else if (correctClassId == 1) {  // Heart_Girth: เส้นแนวตั้งตามรอบอกของโค
                   // ปรับให้อยู่ทางซ้ายมากขึ้น (ขยับเข้าไปในตัวโค)
                   x1 = boxX1 + (boxX2 - boxX1) * 0.3;  // ขยับไปทางซ้ายประมาณ 30% ของความกว้างบ็อกซ์
                   y1 = boxY1;
                   x2 = x1;
                   y2 = boxY2;
                 } 
-                else if (correctedClassId == 2) {  // Body_Length: เส้นแนวเฉียงจากไหล่ถึงสะโพกโค
+                else if (correctClassId == 0) {  // Body_Length: เส้นแนวเฉียงจากไหล่ถึงสะโพกโค
                   // ปรับให้เป็นเส้นเฉียงจากซ้ายล่างไปขวาบน ตามโครงสร้างของโค
                   x1 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_START_X; // เริ่มต้นที่ซ้ายล่าง (ใกล้ไหล่)
                   y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET; // ปรับตำแหน่ง y ให้ต่ำลงเล็กน้อย
@@ -425,22 +427,22 @@ class CattleDetector {
                 }
 
                 String className = '';
-                if (correctedClassId == 0) {
-                  className = "Yellow_Mark";
-                } else if (correctedClassId == 1) {
-                  className = "Heart_Girth";
-                } else if (correctedClassId == 2) {
+                if (correctClassId == 0) {
                   className = "Body_Length";
+                } else if (correctClassId == 1) {
+                  className = "Heart_Girth";
+                } else if (correctClassId == 2) {
+                  className = "Yellow_Mark";
                 } else {
-                  className = "Unknown_${correctedClassId}";
+                  className = "Unknown_${correctClassId}";
                 }
 
                 // พิมพ์ค่าเพื่อตรวจสอบการแมป classId
-                print('การแมปค่า classId: จากโมเดล=$classId แก้ไขเป็น=$correctedClassId ($className)');
+                print('การแมปค่า classId: จากโมเดล=$classId แก้ไขเป็น=$correctClassId ($className)');
                 
                 // เพิ่มวัตถุที่ตรวจพบ
                 allDetectedObjects.add(DetectedObject(
-                  classId: correctedClassId,
+                  classId: correctClassId,
                   className: className,
                   confidence: confidence,
                   x1: x1,
@@ -462,23 +464,22 @@ class CattleDetector {
           // กรองผลลัพธ์โดยเลือกเฉพาะวัตถุที่มีความเชื่อมั่นสูงสุดในแต่ละคลาส
           Map<int, DetectedObject> bestObjects = {};
 
-          // ให้ความสำคัญกับ Yellow Mark (classId = 0) ก่อน
+          // ให้ความสำคัญกับ Yellow Mark (classId = 2) ก่อน
           List<DetectedObject> yellowMarks = allDetectedObjects
-              .where((obj) => obj.classId == 0)
+              .where((obj) => obj.classId == 2)  // แก้ไขตรงนี้ให้เป็น classId = 2 ตามโจทย์
               .toList();
 
           if (yellowMarks.isNotEmpty) {
               // เรียงลำดับ Yellow Mark ตามความเชื่อมั่นจากมากไปน้อย
               yellowMarks.sort((a, b) => b.confidence.compareTo(a.confidence));
               // เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด
-              bestObjects[0] = yellowMarks.first;
+              bestObjects[2] = yellowMarks.first;  // แก้ไขตรงนี้ให้เป็น key = 2
               print('เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด: ${yellowMarks.first.confidence}');
           }
           
           for (var obj in allDetectedObjects) {
-
             // ข้าม Yellow Mark เพราะจัดการไปแล้ว
-            if (obj.classId == 0) continue;
+            if (obj.classId == 2) continue;
 
             if (!bestObjects.containsKey(obj.classId) || 
                 bestObjects[obj.classId]!.confidence < obj.confidence) {

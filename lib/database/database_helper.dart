@@ -90,7 +90,7 @@ class DatabaseHelper {
   Future<bool> checkCattleNumberExists(String number, [String? excludeId]) async {
     final db = await database;
     
-    String query = 'SELECT COUNT(*) FROM cattle WHERE cattleNumber = ?';
+    String query = 'SELECT COUNT(*) FROM cattle WHERE $columnCattleNumber = ?';
     List<dynamic> args = [number];
     
     if (excludeId != null) {
