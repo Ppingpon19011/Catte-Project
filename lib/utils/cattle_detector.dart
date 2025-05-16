@@ -15,10 +15,10 @@ class CattleDetector {
   static const int INPUT_SIZE = 640; // ขนาด input ของโมเดล YOLOv8
 
   // ค่าคงที่สำหรับการวางตำแหน่งเส้น
-  static const double HEART_GIRTH_X_OFFSET = 0.3;  
-  static const double BODY_LENGTH_START_X = 0.1;   
-  static const double BODY_LENGTH_END_X = 0.9;     
-  static const double BODY_LENGTH_Y_OFFSET = 0.1;  
+  static const double HEART_GIRTH_X_OFFSET = 0.3;
+  static const double BODY_LENGTH_START_X = 0.1;
+  static const double BODY_LENGTH_END_X = 0.9;   
+  static const double BODY_LENGTH_Y_OFFSET = 0.1;
   
   // คลาสสำหรับรันโมเดล TFLite
   Interpreter? _interpreter;
@@ -132,17 +132,11 @@ class CattleDetector {
         );
       }
       
-      // ปรับขนาดภาพให้เหมาะสมกับ input ของโมเดล
-      var resizedImage = img.copyResize(
-        image,
-        width: INPUT_SIZE,
-        height: INPUT_SIZE,
-        interpolation: img.Interpolation.linear,
-      );
-      
       try {
-        // แปลงรูปภาพเป็น tensor
-        var inputTensor = _imageToTensor(resizedImage);
+        // แปลงรูปภาพเป็น tensor และบันทึกรูปที่ resize แล้ว
+        var result = await _imageToTensor(image);
+        var inputTensor = result['tensor'];
+        var resizedImagePath = result['resizedImagePath'];
         
         try {
           // ดึงข้อมูลเกี่ยวกับ output shape ของโมเดล
@@ -181,6 +175,7 @@ class CattleDetector {
             return DetectionResult(
               success: false,
               error: 'รูปแบบ output ไม่ตรงกับที่คาดหวัง',
+              resizedImagePath: resizedImagePath,
             );
           }
           
@@ -188,6 +183,9 @@ class CattleDetector {
           print('กำลังรัน inference...');
           
           try {
+            print('รูปแบบ tensor ก่อนส่งเข้า inference: ${inputTensor.runtimeType}');
+            print('ตัวอย่างค่าใน inputTensor[0][0][0]: ${inputTensor[0][0][0]}');
+
             _interpreter!.run(inputTensor, outputBuffer);
             print('รัน inference สำเร็จ');
             
@@ -220,6 +218,7 @@ class CattleDetector {
             return DetectionResult(
               success: false,
               error: 'ไม่สามารถรัน inference ได้: $runError',
+              resizedImagePath: resizedImagePath,
             );
           }
           
@@ -237,6 +236,7 @@ class CattleDetector {
             return DetectionResult(
               success: false,
               error: 'ไม่พบวัตถุในภาพ กรุณาวัดด้วยตนเอง',
+              resizedImagePath: resizedImagePath,
             );
           }
           
@@ -292,13 +292,15 @@ class CattleDetector {
           return DetectionResult(
             success: true,
             objects: detectionResults,
+            resizedImagePath: resizedImagePath,
           );
 
-          } catch (e) {
+        } catch (e) {
           print('เกิดข้อผิดพลาดในการประมวลผล output: $e');
           return DetectionResult(
             success: false,
             error: 'เกิดข้อผิดพลาดในการประมวลผล output: $e',
+            resizedImagePath: resizedImagePath,
           );
         }
       } catch (e) {
@@ -317,12 +319,80 @@ class CattleDetector {
     }
   }
 
+  /// บันทึกรูปที่ resize แล้วเพื่อตรวจสอบความถูกต้อง - แบบไม่บล็อกการทำงาน
+  void _saveResizedImageNonBlocking(img.Image resizedImage) {
+    // เรียกใช้งานแบบไม่รอ (Fire and forget)
+    Future(() async {
+      try {
+        // สร้างโฟลเดอร์สำหรับบันทึกรูป
+        final appDir = await getApplicationDocumentsDirectory();
+        final debugDir = Directory('${appDir.path}/debug_images');
+        if (!await debugDir.exists()) {
+          await debugDir.create(recursive: true);
+        }
+        
+        // กำหนดชื่อไฟล์
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final imagePath = '${debugDir.path}/resized_${timestamp}.jpg';
+        
+        // บันทึกรูปในรูปแบบ JPG
+        final jpgData = img.encodeJpg(resizedImage, quality: 95);
+        final file = File(imagePath);
+        await file.writeAsBytes(jpgData);
+        
+        print('บันทึกรูปที่ resize แล้วที่: $imagePath');
+      } catch (e) {
+        print('ไม่สามารถบันทึกรูปที่ resize: $e');
+      }
+    });
+  }
+  
+
   /// แปลงรูปภาพเป็น tensor สำหรับโมเดล YOLOv8
-  List<List<List<List<double>>>> _imageToTensor(img.Image image) {
+  /// คืนค่าเป็น [tensor, resizedImagePath]
+  Future<Map<String, dynamic>> _imageToTensor(img.Image originalImage) async {
     try {
-      print('กำลังแปลงรูปภาพเป็น tensor...');
+      print('กำลังแปลงรูปภาพเป็น tensor สำหรับ YOLOv8...');
       
-      // สร้าง tensor เริ่มต้นขนาด [1, INPUT_SIZE, INPUT_SIZE, 3]
+      // 1. Resize ภาพให้มีขนาด INPUT_SIZE x INPUT_SIZE โดยรักษาอัตราส่วน
+      final int originalWidth = originalImage.width;
+      final int originalHeight = originalImage.height;
+      
+      // คำนวณสัดส่วนการ resize โดยรักษาอัตราส่วนภาพ
+      final double scale = math.min(
+        INPUT_SIZE / originalWidth,
+        INPUT_SIZE / originalHeight
+      );
+      
+      final int newWidth = (originalWidth * scale).round();
+      final int newHeight = (originalHeight * scale).round();
+      
+      // ปรับขนาดภาพตามสัดส่วนที่คำนวณไว้
+      final img.Image scaledImage = img.copyResize(
+        originalImage,
+        width: newWidth,
+        height: newHeight,
+        interpolation: img.Interpolation.cubic // ใช้ cubic interpolation เพื่อคุณภาพที่ดีกว่า
+      );
+      
+      // 2. สร้างรูปภาพขนาด INPUT_SIZE x INPUT_SIZE พร้อมพื้นที่ว่างสีดำ
+      final img.Image paddedImage = img.Image(
+        width: INPUT_SIZE,
+        height: INPUT_SIZE,
+        format: originalImage.format,
+      );
+      
+      // คำนวณตำแหน่งวางภาพตรงกลาง canvas
+      final int offsetX = (INPUT_SIZE - newWidth) ~/ 2;
+      final int offsetY = (INPUT_SIZE - newHeight) ~/ 2;
+      
+      // วางภาพที่ resize แล้วลงบน canvas ขนาด INPUT_SIZE x INPUT_SIZE
+      img.compositeImage(paddedImage, scaledImage, dstX: offsetX, dstY: offsetY);
+      
+      // 3. บันทึกรูปที่ทำการ preprocess แล้วเพื่อตรวจสอบ
+      String? resizedImagePath = await _saveDebugImage(paddedImage, 'preprocessed');
+      
+      // 4. สร้าง tensor เริ่มต้นขนาด [1, INPUT_SIZE, INPUT_SIZE, 3]
       var tensor = List.filled(
         1, // batch size
         List.filled(
@@ -341,59 +411,110 @@ class CattleDetector {
         growable: false
       );
       
-      // แปลงรูปภาพเป็น tensor
+      // 5. แปลงรูปภาพเป็น tensor (ใช้รูปภาพที่ preprocess แล้ว)
       for (int y = 0; y < INPUT_SIZE; y++) {
         for (int x = 0; x < INPUT_SIZE; x++) {
-          if (x < image.width && y < image.height) {
-            try {
-              final pixel = image.getPixel(x, y);
-              
-              // YOLOv8 ต้องการภาพในรูปแบบ RGB normalized (0-1)
-              tensor[0][y][x][0] = pixel.r / 255.0; // Red
-              tensor[0][y][x][1] = pixel.g / 255.0; // Green
-              tensor[0][y][x][2] = pixel.b / 255.0; // Blue
-            } catch (pixelError) {
-              // กรณีที่มีปัญหากับพิกเซล ใช้ค่าเริ่มต้น
-              print('เกิดข้อผิดพลาดกับพิกเซล ($x,$y): $pixelError');
-              tensor[0][y][x][0] = 0.0; // Red
-              tensor[0][y][x][1] = 0.0; // Green
-              tensor[0][y][x][2] = 0.0; // Blue
-            }
-          } else {
-            // กรณีที่ออกนอกขอบเขตของภาพ ใช้ค่า 0 (สีดำ)
-            tensor[0][y][x][0] = 0.0; // Red
-            tensor[0][y][x][1] = 0.0; // Green
-            tensor[0][y][x][2] = 0.0; // Blue
-          }
+          final img.Pixel pixel = paddedImage.getPixel(x, y);
+          
+          // YOLOv8 ต้องการภาพในรูปแบบ RGB normalized (0-1)
+          tensor[0][y][x][0] = pixel.r / 255.0; // Red
+          tensor[0][y][x][1] = pixel.g / 255.0; // Green
+          tensor[0][y][x][2] = pixel.b / 255.0; // Blue
         }
       }
       
-      print('แปลงรูปภาพเป็น tensor สำเร็จ');
-      return tensor;
+      print('แปลงรูปภาพเป็น tensor สำเร็จ: [1, $INPUT_SIZE, $INPUT_SIZE, 3]');
+      return {
+        'tensor': tensor,
+        'resizedImagePath': resizedImagePath,
+      };
+      
     } catch (e) {
       print('เกิดข้อผิดพลาดในการสร้าง input tensor: $e');
       
       // สร้าง tensor เริ่มต้นในกรณีที่มีข้อผิดพลาด
       print('สร้าง tensor เริ่มต้นแทน');
-      return List.filled(
-        1, // batch size
-        List.filled(
-          INPUT_SIZE, // height
+      return {
+        'tensor': List.filled(
+          1, // batch size
           List.filled(
-            INPUT_SIZE, // width
+            INPUT_SIZE, // height
             List.filled(
-              3, // channels (RGB)
-              0.0,
+              INPUT_SIZE, // width
+              List.filled(
+                3, // channels (RGB)
+                0.0,
+                growable: false
+              ),
               growable: false
             ),
             growable: false
           ),
           growable: false
         ),
-        growable: false
-      );
+        'resizedImagePath': null,
+      };
     }
   }
+
+  /// บันทึกรูปภาพสำหรับการตรวจสอบความถูกต้องและคืนค่าพาธของไฟล์
+  Future<String?> _saveDebugImage(img.Image image, String prefix) async {
+    try {
+      // สร้าง timestamp เพื่อป้องกันการบันทึกทับไฟล์เดิม
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      
+      // ใช้ getApplicationDocumentsDirectory ซึ่งเป็นที่นิยมใช้ทั้งใน iOS และ Android
+      final appDir = await getApplicationDocumentsDirectory();
+      final debugDir = Directory('${appDir.path}/cattle_debug_images');
+      
+      // สร้างโฟลเดอร์ถ้ายังไม่มี
+      if (!await debugDir.exists()) {
+        await debugDir.create(recursive: true);
+      }
+      
+      // กำหนดพาธของไฟล์
+      final filePath = '${debugDir.path}/${prefix}_${timestamp}.jpg';
+      
+      // บันทึกเป็นไฟล์ JPG ด้วยคุณภาพสูง
+      final File outputFile = File(filePath);
+      final List<int> jpgBytes = img.encodeJpg(image, quality: 95);
+      await outputFile.writeAsBytes(jpgBytes);
+      
+      print('บันทึกรูปภาพตรวจสอบที่: $filePath');
+      return filePath;
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการบันทึกรูปภาพตรวจสอบ: $e');
+      return null;
+    }
+  }
+
+  /// บันทึกรูปที่ resize แล้วเพื่อตรวจสอบความถูกต้อง (เป็น async แต่ไม่ await)
+  Future<void> _saveResizedImage(img.Image resizedImage) async {
+    try {
+      // สร้างโฟลเดอร์ในพื้นที่จัดเก็บภายนอก (external storage)
+      final appDir = await getExternalStorageDirectory(); // จาก path_provider
+      final debugDir = Directory('${appDir?.path}/cattle_debug_images');
+      
+      if (!await debugDir.exists()) {
+        await debugDir.create(recursive: true);
+      }
+      
+      // บันทึกรูปภาพ
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final imagePath = '${debugDir.path}/resized_${timestamp}.jpg';
+      
+      final jpgData = img.encodeJpg(resizedImage, quality: 95);
+      final file = File(imagePath);
+      await file.writeAsBytes(jpgData);
+      
+      print('บันทึกรูปที่ resize แล้วที่: $imagePath');
+      
+      // เพิ่มไฟล์ลงในแกลเลอรีของอุปกรณ์ (ต้องใช้ media_scanner_scan_file หรือ plugin เช่น image_gallery_saver)
+    } catch (e) {
+      print('ไม่สามารถบันทึกรูปที่ resize: $e');
+    }
+  }
+  
   
   /// แปลง output จากโมเดล YOLOv8 เป็นรายการวัตถุที่ตรวจพบ
   List<DetectedObject> _processOutput(dynamic outputData, int imageWidth, int imageHeight, {double confidenceThreshold = 0.25}) {  
@@ -588,17 +709,17 @@ class CattleDetector {
             } 
             else if (mappedClassId == 1) {  // รอบอก (Heart Girth)
               // เส้นแนวตั้ง
-              x1 = boxX1 + (boxX2 - boxX1) * 0.3;
+              x1 = boxX1 + (boxX2 - boxX1) * HEART_GIRTH_X_OFFSET;
               y1 = boxY1;
               x2 = x1;
               y2 = boxY2;
             } 
             else if (mappedClassId == 2) {  // ความยาวลำตัว (Body Length)
               // เส้นแนวเฉียงตามโครงสร้างของโค
-              x1 = boxX1 + (boxX2 - boxX1) * 0.1;
-              y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * 0.1;
-              x2 = boxX1 + (boxX2 - boxX1) * 0.9;
-              y2 = (boxY1 + boxY2) / 2 - (boxY2 - boxY1) * 0.1;
+              x1 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_START_X;
+              y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET;
+              x2 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_END_X;
+              y2 = (boxY1 + boxY2) / 2 - (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET;
             } 
             else {
               // กรณีคลาสที่ไม่รู้จัก ใช้บ็อกซ์ตามปกติ
@@ -803,11 +924,13 @@ class DetectionResult {
   final bool success;
   final List<DetectedObject>? objects;
   final String? error;
+  final String? resizedImagePath;
   
   DetectionResult({
     required this.success,
     this.objects,
     this.error,
+    this.resizedImagePath,
   });
   
   // ดึงวัตถุตามชื่อ class

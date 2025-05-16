@@ -88,7 +88,8 @@ class CattleMeasurementService {
     }
   }
   
-  // แก้ไขเมธอด analyzeImage สำหรับวิเคราะห์ภาพและประมาณน้ำหนัก
+  //เมธอด analyzeImage สำหรับวิเคราะห์ภาพและประมาณน้ำหนัก
+  /// วิเคราะห์ภาพและประมาณน้ำหนักโค
   Future<MeasurementResult> analyzeImage(
     File imageFile,
     String breed,
@@ -115,12 +116,13 @@ class CattleMeasurementService {
       // ใช้ CattleDetector สำหรับตรวจจับวัตถุในภาพ
       final detectionResult = await _detector.detectCattle(imageFile);
       
+      // ถ้าไม่พบวัตถุหรือไม่สำเร็จ
       if (!detectionResult.success || detectionResult.objects == null || detectionResult.objects!.isEmpty) {
         print('การตรวจจับวัตถุไม่สำเร็จ กรุณาวัดด้วยตนเอง');
         return MeasurementResult(
           success: false,
           error: 'การตรวจจับวัตถุไม่สำเร็จ กรุณาวัดด้วยตนเอง',
-          detectionResult: detectionResult,
+          detectionResult: detectionResult, // ส่งผลลัพธ์การตรวจจับบางส่วนกลับไปด้วย
         );
       }
       
@@ -133,28 +135,44 @@ class CattleMeasurementService {
       detector.DetectedObject? heartGirthObj;
       detector.DetectedObject? bodyLengthObj;
       
+      // เลือกวัตถุที่มีความเชื่อมั่นสูงสุดสำหรับแต่ละประเภท
+      Map<int, detector.DetectedObject> bestObjects = {};
+      
       for (var obj in detectionResult.objects!) {
-        // แก้ไขการตรวจสอบ classId ให้ตรงกับโมเดล
-        if (obj.classId == 0) { // Yellow Mark (จุดอ้างอิง)
-          hasYellowMark = true;
-          yellowMarkObj = obj;
+        int classId = obj.classId;
+        
+        // ถ้ายังไม่มีวัตถุประเภทนี้ หรือวัตถุนี้มีความเชื่อมั่นสูงกว่าที่มีอยู่
+        if (!bestObjects.containsKey(classId) || 
+            obj.confidence > bestObjects[classId]!.confidence) {
+          bestObjects[classId] = obj;
         }
-        if (obj.classId == 1) { // Heart Girth (รอบอก)
-          hasHeartGirth = true;
-          heartGirthObj = obj;
-        }
-        if (obj.classId == 2) { // Body Length (ความยาวลำตัว)
-          hasBodyLength = true;
-          bodyLengthObj = obj;
-        }
+        
+        // บันทึกว่าพบวัตถุประเภทนี้แล้ว
+        if (classId == 0) hasYellowMark = true;      // จุดอ้างอิง
+        else if (classId == 1) hasHeartGirth = true; // รอบอก
+        else if (classId == 2) hasBodyLength = true; // ความยาวลำตัว
       }
+      
+      // ดึงวัตถุที่ดีที่สุดสำหรับแต่ละประเภท
+      if (hasYellowMark) yellowMarkObj = bestObjects[0];
+      if (hasHeartGirth) heartGirthObj = bestObjects[1];
+      if (hasBodyLength) bodyLengthObj = bestObjects[2];
       
       // ถ้าไม่พบวัตถุครบทั้ง 3 ประเภท ให้ผู้ใช้วัดเอง
       if (!hasYellowMark || !hasHeartGirth || !hasBodyLength) {
         print('ไม่พบวัตถุครบทั้ง 3 ประเภท กรุณาวัดด้วยตนเอง');
+        
+        // สร้างข้อความแจ้งเตือนที่ระบุว่าขาดวัตถุประเภทใด
+        List<String> missingObjects = [];
+        if (!hasYellowMark) missingObjects.add("จุดอ้างอิง");
+        if (!hasHeartGirth) missingObjects.add("รอบอก");
+        if (!hasBodyLength) missingObjects.add("ความยาวลำตัว");
+        
+        String errorMsg = 'ไม่พบ ${missingObjects.join(", ")} ในภาพ กรุณาวัดด้วยตนเอง';
+        
         return MeasurementResult(
           success: false,
-          error: 'ไม่พบวัตถุครบทั้ง 3 ประเภท กรุณาวัดด้วยตนเอง',
+          error: errorMsg,
           detectionResult: detectionResult, // ส่งผลลัพธ์การตรวจจับบางส่วนกลับไปด้วย
         );
       }
@@ -162,7 +180,7 @@ class CattleMeasurementService {
       // คำนวณขนาดจริงในหน่วยเซนติเมตร
       double yellowMarkWidthCm = WeightCalculator.REFERENCE_MARK_LENGTH_CM; // ความยาวจุดอ้างอิงเป็น 100 ซม.
       
-      // คำนวณระยะห่างตามแนวระหว่างจุด x1,y1 และ x2,y2 ของจุดอ้างอิง
+      // คำนวณระยะห่างระหว่างจุดของจุดอ้างอิง
       double yellowMarkPixelLength = math.sqrt(
         math.pow(yellowMarkObj!.x2 - yellowMarkObj.x1, 2) + 
         math.pow(yellowMarkObj.y2 - yellowMarkObj.y1, 2)
@@ -170,35 +188,60 @@ class CattleMeasurementService {
       
       // อัตราส่วนพิกเซลต่อเซนติเมตร (ใช้สำหรับแปลงหน่วย)
       double pixelToCmRatio = yellowMarkPixelLength / yellowMarkWidthCm;
+      print('อัตราส่วนการแปลงหน่วย: $pixelToCmRatio พิกเซล/ซม.');
       
-      // ปรับปรุงวิธีการคำนวณรอบอก - ใช้ความสูงของเส้นแนวตั้ง
-      double heartGirthHeight = math.sqrt(
+      // ตรวจสอบอัตราส่วนว่าสมเหตุสมผลหรือไม่
+      if (pixelToCmRatio <= 0 || pixelToCmRatio > 50) {
+        print('อัตราส่วนการแปลงหน่วยไม่สมเหตุสมผล: $pixelToCmRatio พิกเซล/ซม.');
+        return MeasurementResult(
+          success: false,
+          error: 'การวัดจุดอ้างอิงไม่ถูกต้อง กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
+        );
+      }
+      
+      // คำนวณความยาวของเส้นรอบอกและความยาวลำตัวในหน่วยพิกเซล
+      double heartGirthPixels = math.sqrt(
         math.pow(heartGirthObj!.x2 - heartGirthObj.x1, 2) + 
         math.pow(heartGirthObj.y2 - heartGirthObj.y1, 2)
       );
       
-      // คำนวณความยาวลำตัวในหน่วยเซนติเมตร
       double bodyLengthPixels = math.sqrt(
         math.pow(bodyLengthObj!.x2 - bodyLengthObj.x1, 2) + 
         math.pow(bodyLengthObj.y2 - bodyLengthObj.y1, 2)
       );
       
       // แปลงจากพิกเซลเป็นเซนติเมตร
+      double heartGirthCm = heartGirthPixels / pixelToCmRatio;
       double bodyLengthCm = bodyLengthPixels / pixelToCmRatio;
       
-      // ปรับปรุงวิธีการคำนวณรอบอก - คำนวณเส้นรอบวงจากความสูง
-      double heartGirthCm = heartGirthHeight / pixelToCmRatio;
-      // แปลงจากความสูงเป็นรอบวง โดยใช้สูตรคำนวณเส้นรอบวง
+      // คำนวณเส้นรอบวงของรอบอกโดยใช้สูตรเส้นรอบวงวงกลม
       double heartGirthCircumference = WeightCalculator.calculateHeartGirthFromHeight(heartGirthCm);
       
-      // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว
+      // บันทึกข้อมูลการคำนวณเพื่อตรวจสอบ
+      print('การวัดในหน่วยพิกเซล:');
+      print('- จุดอ้างอิง: ${yellowMarkPixelLength.toStringAsFixed(1)} พิกเซล');
+      print('- รอบอก: ${heartGirthPixels.toStringAsFixed(1)} พิกเซล');
+      print('- ความยาวลำตัว: ${bodyLengthPixels.toStringAsFixed(1)} พิกเซล');
+      
+      print('การวัดในหน่วยเซนติเมตร:');
+      print('- จุดอ้างอิง: ${yellowMarkWidthCm} ซม.');
+      print('- รอบอก (ความสูง): ${heartGirthCm.toStringAsFixed(1)} ซม.');
+      print('- รอบอก (เส้นรอบวง): ${heartGirthCircumference.toStringAsFixed(1)} ซม.');
+      print('- ความยาวลำตัว: ${bodyLengthCm.toStringAsFixed(1)} ซม.');
+      
+      // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว (สำหรับคำนวณน้ำหนัก)
       double bodyLengthInches = WeightCalculator.cmToInches(bodyLengthCm);
       double heartGirthInches = WeightCalculator.cmToInches(heartGirthCircumference);
       
-      // คำนวณน้ำหนักจาก WeightCalculator
+      print('การวัดในหน่วยนิ้ว:');
+      print('- รอบอก: ${heartGirthInches.toStringAsFixed(1)} นิ้ว');
+      print('- ความยาวลำตัว: ${bodyLengthInches.toStringAsFixed(1)} นิ้ว');
+      
+      // คำนวณน้ำหนักโดยใช้สูตรของ WeightCalculator
       double weightInKg = WeightCalculator.calculateWeight(heartGirthInches, bodyLengthInches);
       
-      // ปรับค่าตามอายุและเพศโดยใช้ WeightCalculator
+      // ปรับค่าน้ำหนักตามอายุและเพศของโค
       double adjustedWeight = WeightCalculator.adjustWeightByAgeAndGender(
         weightInKg,
         gender,
@@ -208,15 +251,35 @@ class CattleMeasurementService {
       // คำนวณความเชื่อมั่น
       double confidence = _calculateConfidence(detectionResult);
       
+      // บันทึกข้อมูลการคำนวณน้ำหนัก
+      print('น้ำหนักที่คำนวณได้:');
+      print('- น้ำหนักดิบ: ${weightInKg.toStringAsFixed(1)} กก.');
+      print('- น้ำหนักปรับแล้ว: ${adjustedWeight.toStringAsFixed(1)} กก.');
+      print('- ความเชื่อมั่น: ${(confidence * 100).toStringAsFixed(1)}%');
+      
+      // ตรวจสอบว่าน้ำหนักเป็นไปได้หรือไม่
+      if (adjustedWeight <= 0 || adjustedWeight > 2000) {
+        print('น้ำหนักที่คำนวณได้ไม่อยู่ในช่วงที่เป็นไปได้: $adjustedWeight กก.');
+        return MeasurementResult(
+          success: false,
+          error: 'น้ำหนักที่คำนวณได้ไม่สมเหตุสมผล กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
+          heartGirth: heartGirthCircumference,
+          bodyLength: bodyLengthCm,
+        );
+      }
+      
       return MeasurementResult(
         success: true,
-        heartGirth: heartGirthCircumference, // ใช้เส้นรอบวงที่คำนวณแล้ว
+        heartGirth: heartGirthCircumference,
         bodyLength: bodyLengthCm,
+        height: null, // ไม่ได้วัดความสูง
         rawWeight: weightInKg,
         adjustedWeight: adjustedWeight,
         confidence: confidence,
         detectionResult: detectionResult,
       );
+      
     } catch (e) {
       print('เกิดข้อผิดพลาดในการวิเคราะห์ภาพ: $e');
       return MeasurementResult(

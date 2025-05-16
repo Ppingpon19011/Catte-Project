@@ -38,7 +38,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
   double _heartGirthCm = 0.0;
   double _confidenceValue = 0.0;
   bool _hasResult = false;
-
+  File? _resizedImageFile;
   bool _resultWasAlreadySaved = false;
 
   final TextEditingController _notesController = TextEditingController();
@@ -780,6 +780,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
       // แสดงข้อความกำลังประมวลผล
       setState(() {
         _isProcessing = true;
+        _resizedImageFile = null; // รีเซ็ตรูปภาพที่ resize ไว้
       });
       
       // คำนวณอายุของโคเป็นเดือน
@@ -801,6 +802,16 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
 
           if (result.success) {
             // การตรวจจับสำเร็จและพบวัตถุทั้งหมด
+            
+            // ตรวจสอบและโหลดรูปภาพที่ resize แล้ว
+            if (result.detectionResult != null && 
+                result.detectionResult!.resizedImagePath != null) {
+              setState(() {
+                _resizedImageFile = File(result.detectionResult!.resizedImagePath!);
+                print('โหลดรูปภาพที่ resize แล้ว: ${result.detectionResult!.resizedImagePath}');
+              });
+            }
+            
             if (mounted) {
               setState(() {
                 _isProcessing = false;
@@ -824,6 +835,15 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
             print('วิเคราะห์ภาพสำเร็จ: น้ำหนัก = ${result.adjustedWeight} กก.');
             return;
           } else {
+            // ถ้าการวิเคราะห์ไม่สำเร็จ แต่มีไฟล์ที่ resize แล้ว
+            if (result.detectionResult != null && 
+                result.detectionResult!.resizedImagePath != null) {
+              setState(() {
+                _resizedImageFile = File(result.detectionResult!.resizedImagePath!);
+                print('โหลดรูปภาพที่ resize แล้ว (จากการวิเคราะห์ไม่สำเร็จ): ${result.detectionResult!.resizedImagePath}');
+              });
+            }
+            
             // ถ้าการวิเคราะห์ไม่สำเร็จ ให้ไปใช้การวัดด้วยตนเอง
             print('การวิเคราะห์ด้วย ML ไม่สำเร็จ: ${result.error}');
             
@@ -861,6 +881,9 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
           setState(() {
             _isProcessing = false;
           });
+          
+          // ลองใช้การวิเคราะห์แบบดั้งเดิมแทน
+          await _fallbackAnalysis();
         }
       } catch (e) {
         print('เกิดข้อผิดพลาดในการวิเคราะห์ภาพ: $e');
@@ -2079,13 +2102,45 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: _hasResult && _analyzedImageFile != null
-                          ? Image.file(
-                              _analyzedImageFile!,
-                              fit: BoxFit.contain,
-                            )
-                          : _imageFile != null
-                              ? _buildImagePreview()
-                              : Center(
+                        ? Image.file(
+                            _analyzedImageFile!,
+                            fit: BoxFit.contain,
+                          )
+                        : Column(
+                            children: [
+                              // แสดงรูปต้นฉบับ
+                              if (_imageFile != null) 
+                                Expanded(
+                                  flex: 2,
+                                  child: Image.file(
+                                    _imageFile!,
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              
+                              // แสดงรูปที่ resize เพื่อนำไปใช้ใน model (ถ้ามี)
+                              if (_resizedImageFile != null)
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        'รูปที่ใช้ในโมเดล (${detector.CattleDetector.INPUT_SIZE}x${detector.CattleDetector.INPUT_SIZE})',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                      ),
+                                      Expanded(
+                                        child: Image.file(
+                                          _resizedImageFile!,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                
+                              // กรณีไม่มีรูปภาพ
+                              if (_imageFile == null)
+                                Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
@@ -2105,6 +2160,8 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                                     ],
                                   ),
                                 ),
+                            ],
+                          ),
                     ),
                     SizedBox(height: 20),
                     
