@@ -517,7 +517,7 @@ class CattleDetector {
   
   
   /// แปลง output จากโมเดล YOLOv8 เป็นรายการวัตถุที่ตรวจพบ
-  List<DetectedObject> _processOutput(dynamic outputData, int imageWidth, int imageHeight, {double confidenceThreshold = 0.25}) {  
+  List<DetectedObject> _processOutput(dynamic outputData, int imageWidth, int imageHeight, {double confidenceThreshold = 0.01}) {  
     List<DetectedObject> detectedObjects = [];
     
     try {
@@ -534,7 +534,7 @@ class CattleDetector {
         try {
           // กรณี 1: รูปแบบ [1, 84, 8400]
           if (outputData.length == 1 && outputData[0] is List) {
-            print('กำลังประมวลผลในรูปแบบ [1, 84, 8400]');
+            print('กำลังประมวลผลในรูปแบบ [${outputData.length}, ${outputData[0].length}, ${outputData[0][0].length}]');
             return _processYoloV8Output(outputData[0], imageWidth, imageHeight, confidenceThreshold);
           }
           // กรณี 2: รูปแบบ [84, 8400]
@@ -653,8 +653,23 @@ class CattleDetector {
       // สแกนทุกวัตถุที่เป็นไปได้
       for (int i = 0; i < cols; i++) {
         // ตรวจสอบว่ามีข้อมูลเพียงพอ
-        if (rows <= 4 || i >= formattedOutput[0].length) {
-          continue;
+        // if (rows <= 4 || i >= formattedOutput[0].length) {
+        //   continue;
+        // }
+
+        final double conf1 = formattedOutput[4][i].toDouble();
+        final double conf2 = formattedOutput[5][i].toDouble();
+        final double conf3 = formattedOutput[6][i].toDouble();
+
+        final confidences = [conf1, conf2, conf3];
+        final maxConfidence = confidences.reduce(math.max);
+
+        if (maxConfidence >= effectiveThreshold) {
+
+          final tempIndex = confidences.indexOf(maxConfidence);
+
+          print('Found class $tempIndex at conf: $maxConfidence' );
+
         }
         
         // ตรวจสอบ objectness score
