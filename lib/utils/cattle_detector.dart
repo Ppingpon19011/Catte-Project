@@ -673,96 +673,96 @@ class CattleDetector {
         }
         
         // ตรวจสอบ objectness score
-        final double objectness = formattedOutput[4][i].toDouble();
+        // final double objectness = formattedOutput[4][i].toDouble();
         
-        if (objectness >= effectiveThreshold) {
-          // หาคลาสที่มีความน่าจะเป็นสูงสุด
-          int bestClassIdx = -1;
-          double bestClassScore = 0;
+        // if (objectness >= effectiveThreshold) {
+        //   // หาคลาสที่มีความน่าจะเป็นสูงสุด
+        //   int bestClassIdx = -1;
+        //   double bestClassScore = 0;
           
-          for (int c = 0; c < numClasses && (5 + c) < rows; c++) {
-            double classScore = formattedOutput[5 + c][i].toDouble();
-            if (classScore > bestClassScore) {
-              bestClassScore = classScore;
-              bestClassIdx = c;
-            }
-          }
+        //   for (int c = 0; c < numClasses && (5 + c) < rows; c++) {
+        //     double classScore = formattedOutput[5 + c][i].toDouble();
+        //     if (classScore > bestClassScore) {
+        //       bestClassScore = classScore;
+        //       bestClassIdx = c;
+        //     }
+        //   }
           
-          // ถ้ามีคลาสที่มีคะแนนสูงพอ
-          if (bestClassIdx != -1 && bestClassScore * objectness >= effectiveThreshold) {
-            // ดึงค่าพิกัดกล่อง
-            double x = formattedOutput[0][i].toDouble();
-            double y = formattedOutput[1][i].toDouble();
-            double w = formattedOutput[2][i].toDouble();
-            double h = formattedOutput[3][i].toDouble();
+        //   // ถ้ามีคลาสที่มีคะแนนสูงพอ
+        //   if (bestClassIdx != -1 && bestClassScore * objectness >= effectiveThreshold) {
+        //     // ดึงค่าพิกัดกล่อง
+        //     double x = formattedOutput[0][i].toDouble();
+        //     double y = formattedOutput[1][i].toDouble();
+        //     double w = formattedOutput[2][i].toDouble();
+        //     double h = formattedOutput[3][i].toDouble();
             
-            // แปลงเป็นพิกัด x1, y1, x2, y2 (เทียบกับภาพต้นฉบับ)
-            double boxX1 = (x - w / 2) * imageWidth;
-            double boxY1 = (y - h / 2) * imageHeight;
-            double boxX2 = (x + w / 2) * imageWidth;
-            double boxY2 = (y + h / 2) * imageHeight;
+        //     // แปลงเป็นพิกัด x1, y1, x2, y2 (เทียบกับภาพต้นฉบับ)
+        //     double boxX1 = (x - w / 2) * imageWidth;
+        //     double boxY1 = (y - h / 2) * imageHeight;
+        //     double boxX2 = (x + w / 2) * imageWidth;
+        //     double boxY2 = (y + h / 2) * imageHeight;
             
-            // จำกัดพิกัดไม่ให้เกินขอบภาพ
-            boxX1 = math.max(0, math.min(boxX1, imageWidth.toDouble()));
-            boxY1 = math.max(0, math.min(boxY1, imageHeight.toDouble()));
-            boxX2 = math.max(0, math.min(boxX2, imageWidth.toDouble()));
-            boxY2 = math.max(0, math.min(boxY2, imageHeight.toDouble()));
+        //     // จำกัดพิกัดไม่ให้เกินขอบภาพ
+        //     boxX1 = math.max(0, math.min(boxX1, imageWidth.toDouble()));
+        //     boxY1 = math.max(0, math.min(boxY1, imageHeight.toDouble()));
+        //     boxX2 = math.max(0, math.min(boxX2, imageWidth.toDouble()));
+        //     boxY2 = math.max(0, math.min(boxY2, imageHeight.toDouble()));
             
-            // แมป classId จากโมเดลเป็น classId ในแอป
-            int mappedClassId = _mapClassIdToAppId(bestClassIdx);
+        //     // แมป classId จากโมเดลเป็น classId ในแอป
+        //     int mappedClassId = _mapClassIdToAppId(bestClassIdx);
             
-            // คำนวณพิกัดเส้นตามประเภทของคลาส
-            double x1, y1, x2, y2;
+        //     // คำนวณพิกัดเส้นตามประเภทของคลาส
+        //     double x1, y1, x2, y2;
             
-            // กำหนดพิกัดของเส้นตามประเภทของวัตถุหลังจากแมป
-            if (mappedClassId == 0) {  // จุดอ้างอิง (Yellow Mark)
-              // ใช้ขอบซ้ายและขอบขวาของบ็อกซ์ - เส้นแนวนอน
-              x1 = boxX1;
-              y1 = (boxY1 + boxY2) / 2;
-              x2 = boxX2;
-              y2 = y1;
-            } 
-            else if (mappedClassId == 1) {  // รอบอก (Heart Girth)
-              // เส้นแนวตั้ง
-              x1 = boxX1 + (boxX2 - boxX1) * HEART_GIRTH_X_OFFSET;
-              y1 = boxY1;
-              x2 = x1;
-              y2 = boxY2;
-            } 
-            else if (mappedClassId == 2) {  // ความยาวลำตัว (Body Length)
-              // เส้นแนวเฉียงตามโครงสร้างของโค
-              x1 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_START_X;
-              y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET;
-              x2 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_END_X;
-              y2 = (boxY1 + boxY2) / 2 - (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET;
-            } 
-            else {
-              // กรณีคลาสที่ไม่รู้จัก ใช้บ็อกซ์ตามปกติ
-              x1 = boxX1;
-              y1 = boxY1;
-              x2 = boxX2;
-              y2 = boxY2;
-            }
+        //     // กำหนดพิกัดของเส้นตามประเภทของวัตถุหลังจากแมป
+        //     if (mappedClassId == 0) {  // จุดอ้างอิง (Yellow Mark)
+        //       // ใช้ขอบซ้ายและขอบขวาของบ็อกซ์ - เส้นแนวนอน
+        //       x1 = boxX1;
+        //       y1 = (boxY1 + boxY2) / 2;
+        //       x2 = boxX2;
+        //       y2 = y1;
+        //     } 
+        //     else if (mappedClassId == 1) {  // รอบอก (Heart Girth)
+        //       // เส้นแนวตั้ง
+        //       x1 = boxX1 + (boxX2 - boxX1) * HEART_GIRTH_X_OFFSET;
+        //       y1 = boxY1;
+        //       x2 = x1;
+        //       y2 = boxY2;
+        //     } 
+        //     else if (mappedClassId == 2) {  // ความยาวลำตัว (Body Length)
+        //       // เส้นแนวเฉียงตามโครงสร้างของโค
+        //       x1 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_START_X;
+        //       y1 = (boxY1 + boxY2) / 2 + (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET;
+        //       x2 = boxX1 + (boxX2 - boxX1) * BODY_LENGTH_END_X;
+        //       y2 = (boxY1 + boxY2) / 2 - (boxY2 - boxY1) * BODY_LENGTH_Y_OFFSET;
+        //     } 
+        //     else {
+        //       // กรณีคลาสที่ไม่รู้จัก ใช้บ็อกซ์ตามปกติ
+        //       x1 = boxX1;
+        //       y1 = boxY1;
+        //       x2 = boxX2;
+        //       y2 = boxY2;
+        //     }
             
-            // กำหนดชื่อคลาสตาม mappedClassId
-            String className = _getClassNameFromId(mappedClassId);
+        //     // กำหนดชื่อคลาสตาม mappedClassId
+        //     String className = _getClassNameFromId(mappedClassId);
             
-            // เพิ่มวัตถุที่ตรวจพบ
-            allDetectedObjects.add(DetectedObject(
-              classId: mappedClassId,
-              className: className,
-              confidence: objectness * bestClassScore,
-              x1: x1,
-              y1: y1,
-              x2: x2,
-              y2: y2,
-            ));
+        //     // เพิ่มวัตถุที่ตรวจพบ
+        //     allDetectedObjects.add(DetectedObject(
+        //       classId: mappedClassId,
+        //       className: className,
+        //       confidence: objectness * bestClassScore,
+        //       x1: x1,
+        //       y1: y1,
+        //       x2: x2,
+        //       y2: y2,
+        //     ));
             
-            print('ตรวจพบ $className (Model ClassID: $bestClassIdx → App ClassID: $mappedClassId): ความเชื่อมั่น ${(objectness * bestClassScore * 100).toStringAsFixed(1)}%');
-            print('  ตำแหน่งเส้น: (${x1.toInt()},${y1.toInt()}) - (${x2.toInt()},${y2.toInt()})');
-            print('  ขอบเขตกรอบ: (${boxX1.toInt()},${boxY1.toInt()}) - (${boxX2.toInt()},${boxY2.toInt()})');
-          }
-        }
+        //     print('ตรวจพบ $className (Model ClassID: $bestClassIdx → App ClassID: $mappedClassId): ความเชื่อมั่น ${(objectness * bestClassScore * 100).toStringAsFixed(1)}%');
+        //     print('  ตำแหน่งเส้น: (${x1.toInt()},${y1.toInt()}) - (${x2.toInt()},${y2.toInt()})');
+        //     print('  ขอบเขตกรอบ: (${boxX1.toInt()},${boxY1.toInt()}) - (${boxX2.toInt()},${boxY2.toInt()})');
+        //   }
+        // }
       }
       
       // เรียงลำดับตามความเชื่อมั่น
