@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'dart:math' as math;
-import '../utils/cattle_detector.dart' as detector;
+import '../utils/cattle_detector.dart';
 
 class ManualMeasurementPainter extends CustomPainter {
   final ui.Image? image;
-  final List<detector.DetectedObject> detectedObjects;
+  final List<DetectedObject> detectedObjects;
   final int selectedIndex;
   final Offset? startPoint;
   final Offset? endPoint;
   final bool isEditing;
   final int currentEditingObject;
   final double zoomScale;
-  final double anchorPointRadius; // เพิ่มตัวแปรสำหรับขนาดจุดยึด (หมุด)
+  final double anchorPointRadius; // ขนาดจุดยึด (หมุด)
   final double pinScale; // ใช้ scale แทน boolean animation
   final bool showOriginalBoxes;
 
@@ -25,7 +25,7 @@ class ManualMeasurementPainter extends CustomPainter {
     this.isEditing = false,
     this.currentEditingObject = -1,
     this.zoomScale = 1.0,
-    this.anchorPointRadius = 12.0, // ค่าเริ่มต้นของหมุด - ขยายขนาดให้ใหญ่ขึ้น
+    this.anchorPointRadius = 12.0, // ค่าเริ่มต้นของหมุด
     this.pinScale = 1.0, // ค่าเริ่มต้น 1.0
     this.showOriginalBoxes = true,
   });
@@ -90,7 +90,7 @@ class ManualMeasurementPainter extends CustomPainter {
         Rect detectionBox;
         
         // ในกรณีของเส้น เราต้องสร้างกรอบรอบๆ เส้น
-        if (obj.classId == 0) { // จุดอ้างอิง (Yellow Mark) - แนวนอน
+        if (obj.classId == 2) { // จุดอ้างอิง (Yellow Mark) - แนวนอน
           // สร้างกรอบยาวตามแนวนอน
           detectionBox = Rect.fromLTWH(
             offsetX + (obj.x1 - 10) * baseScale, 
@@ -106,7 +106,7 @@ class ManualMeasurementPainter extends CustomPainter {
             40 * baseScale, 
             (obj.y2 - obj.y1) * baseScale
           );
-        } else if (obj.classId == 2) { // ความยาวลำตัว (Body Length) - แนวนอน/เฉียง
+        } else if (obj.classId == 0) { // ความยาวลำตัว (Body Length) - แนวนอน/เฉียง
           // สร้างกรอบยาวตามแนวนอน
           detectionBox = Rect.fromLTWH(
             offsetX + obj.x1 * baseScale, 
@@ -180,13 +180,13 @@ class ManualMeasurementPainter extends CustomPainter {
       // เลือกสีตามประเภทของวัตถุ
       Paint paint;
       switch (obj.classId) {
-        case 0: // จุดอ้างอิง (Yellow Mark)
+        case 2: // จุดอ้างอิง (Yellow Mark)
           paint = yellowMarkPaint;
           break;
         case 1: // รอบอก (Heart Girth)
           paint = heartGirthPaint;
           break;
-        case 2: // ความยาวลำตัว (Body Length)
+        case 0: // ความยาวลำตัว (Body Length)
           paint = bodyLengthPaint;
           break;
         default:
@@ -235,7 +235,7 @@ class ManualMeasurementPainter extends CustomPainter {
       // ปรับตำแหน่งป้ายกำกับตามประเภทของเส้น
       double labelX, labelY;
       
-      if (obj.classId == 0) { // จุดอ้างอิง (Yellow Mark)
+      if (obj.classId == 2) { // จุดอ้างอิง (Yellow Mark)
         labelX = x1;
         labelY = y1 - 30; // แสดงเหนือเส้น
       } else if (obj.classId == 1) { // รอบอก (Heart Girth)
@@ -367,8 +367,11 @@ class ManualMeasurementPainter extends CustomPainter {
       textPainter.height + 4,
     );
     
-    canvas.drawRect(
-      bgRect,
+    // สร้าง RRect เพื่อเพิ่มมุมโค้ง
+    final rrect = RRect.fromRectAndRadius(bgRect, Radius.circular(4));
+    
+    canvas.drawRRect(
+      rrect,
       Paint()..color = color.withOpacity(0.7)
     );
     
@@ -484,11 +487,11 @@ class ManualMeasurementPainter extends CustomPainter {
   // ฟังก์ชันสำหรับดึงป้ายกำกับตามประเภทของวัตถุ
   String _getLabelByClassId(int classId) {
     switch (classId) {
-      case 0:
+      case 2:
         return 'จุดอ้างอิง'; // Yellow Mark
       case 1:
         return 'รอบอก'; // Heart Girth
-      case 2:
+      case 0:
         return 'ความยาวลำตัว'; // Body Length
       default:
         return 'ไม่ทราบประเภท';
@@ -498,11 +501,11 @@ class ManualMeasurementPainter extends CustomPainter {
   // ฟังก์ชันสำหรับดึงสีตามประเภทของวัตถุ
   Color _getColorByObjectType(int objectType) {
     switch (objectType) {
-      case 0:
+      case 2:
         return Colors.amber; // Yellow Mark
       case 1:
         return Colors.red; // Heart Girth
-      case 2:
+      case 0:
         return Colors.blue; // Body Length
       default:
         return Colors.grey;

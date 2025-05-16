@@ -2,12 +2,11 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'dart:ui' as ui;
-import '../utils/cattle_detector.dart' as detector;
+import '../utils/cattle_detector.dart';
 import '../utils/weight_calculator.dart';
 
 // สร้างคลาส CattleMeasurementService 
@@ -16,8 +15,9 @@ class CattleMeasurementService {
   factory CattleMeasurementService() => _instance;
   CattleMeasurementService._internal();
   
-  final detector.CattleDetector _detector = detector.CattleDetector();
+  final CattleDetector _detector = CattleDetector();
 
+  // ปรับขนาดรูปภาพเพื่อการแสดงผล
   Future<File> resizeImageForDisplay(File imageFile, {int maxWidth = 800, int maxHeight = 800}) async {
     try {
       // อ่านข้อมูลภาพ
@@ -88,14 +88,13 @@ class CattleMeasurementService {
     }
   }
   
-  //เมธอด analyzeImage สำหรับวิเคราะห์ภาพและประมาณน้ำหนัก
   /// วิเคราะห์ภาพและประมาณน้ำหนักโค
   Future<MeasurementResult> analyzeImage(
     File imageFile,
     String breed,
     String gender,
     int ageMonths,
-    [Map<String, dynamic>? options] // พารามิเตอร์เสริม
+    [Map<String, dynamic>? options]
   ) async {
     try {
       print('เริ่มต้นวิเคราะห์ภาพ...');
@@ -114,29 +113,47 @@ class CattleMeasurementService {
       }
       
       // ใช้ CattleDetector สำหรับตรวจจับวัตถุในภาพ
+      print('กำลังเรียกใช้ _detector.detectCattle...');
       final detectionResult = await _detector.detectCattle(imageFile);
       
-      // ถ้าไม่พบวัตถุหรือไม่สำเร็จ
-      if (!detectionResult.success || detectionResult.objects == null || detectionResult.objects!.isEmpty) {
-        print('การตรวจจับวัตถุไม่สำเร็จ กรุณาวัดด้วยตนเอง');
+      // ถ้าไม่สำเร็จและไม่มีวัตถุที่ตรวจพบ
+      if (!detectionResult.success) {
+        print('การตรวจจับวัตถุไม่สำเร็จเนื่องจาก: ${detectionResult.error}');
         return MeasurementResult(
           success: false,
-          error: 'การตรวจจับวัตถุไม่สำเร็จ กรุณาวัดด้วยตนเอง',
-          detectionResult: detectionResult, // ส่งผลลัพธ์การตรวจจับบางส่วนกลับไปด้วย
+          error: detectionResult.error ?? 'การตรวจจับวัตถุไม่สำเร็จ กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
         );
       }
       
-      // ตรวจสอบว่ามีวัตถุที่ต้องการครบถ้วนหรือไม่
+      // ตรวจสอบว่าพบวัตถุหรือไม่
+      if (detectionResult.objects == null || detectionResult.objects!.isEmpty) {
+        print('ไม่พบวัตถุใดๆ ในภาพ');
+        return MeasurementResult(
+          success: false,
+          error: 'ไม่พบวัตถุใดๆ ในภาพ กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
+        );
+      }
+      
+      // แสดงวัตถุที่ตรวจพบทั้งหมด
+      print('พบวัตถุทั้งหมด ${detectionResult.objects!.length} รายการ:');
+      for (int i = 0; i < detectionResult.objects!.length; i++) {
+        var obj = detectionResult.objects![i];
+        print('  ${i+1}. ${obj.className} (ClassID: ${obj.classId}) ความเชื่อมั่น: ${(obj.confidence * 100).toStringAsFixed(2)}%');
+      }
+      
+      // ตรวจสอบว่ามีวัตถุแต่ละประเภทหรือไม่
       bool hasYellowMark = false;
       bool hasHeartGirth = false;
       bool hasBodyLength = false;
       
-      detector.DetectedObject? yellowMarkObj;
-      detector.DetectedObject? heartGirthObj;
-      detector.DetectedObject? bodyLengthObj;
+      DetectedObject? yellowMarkObj;
+      DetectedObject? heartGirthObj;
+      DetectedObject? bodyLengthObj;
       
       // เลือกวัตถุที่มีความเชื่อมั่นสูงสุดสำหรับแต่ละประเภท
-      Map<int, detector.DetectedObject> bestObjects = {};
+      Map<int, DetectedObject> bestObjects = {};
       
       for (var obj in detectionResult.objects!) {
         int classId = obj.classId;
@@ -148,15 +165,21 @@ class CattleMeasurementService {
         }
         
         // บันทึกว่าพบวัตถุประเภทนี้แล้ว
-        if (classId == 0) hasYellowMark = true;      // จุดอ้างอิง
-        else if (classId == 1) hasHeartGirth = true; // รอบอก
-        else if (classId == 2) hasBodyLength = true; // ความยาวลำตัว
+        if (classId == 0) hasBodyLength = true;       // ความยาวลำตัว
+        else if (classId == 1) hasHeartGirth = true;  // รอบอก
+        else if (classId == 2) hasYellowMark = true;  // จุดอ้างอิง
       }
       
       // ดึงวัตถุที่ดีที่สุดสำหรับแต่ละประเภท
-      if (hasYellowMark) yellowMarkObj = bestObjects[0];
+      if (hasBodyLength) bodyLengthObj = bestObjects[0];
       if (hasHeartGirth) heartGirthObj = bestObjects[1];
-      if (hasBodyLength) bodyLengthObj = bestObjects[2];
+      if (hasYellowMark) yellowMarkObj = bestObjects[2];
+      
+      // แสดงผลการเลือกวัตถุที่ดีที่สุด
+      print('ผลการตรวจจับ:');
+      print('- ความยาวลำตัว (Body Length): ${hasBodyLength ? "พบ" : "ไม่พบ"}');
+      print('- รอบอก (Heart Girth): ${hasHeartGirth ? "พบ" : "ไม่พบ"}');
+      print('- จุดอ้างอิง (Yellow Mark): ${hasYellowMark ? "พบ" : "ไม่พบ"}');
       
       // ถ้าไม่พบวัตถุครบทั้ง 3 ประเภท ให้ผู้ใช้วัดเอง
       if (!hasYellowMark || !hasHeartGirth || !hasBodyLength) {
@@ -164,16 +187,26 @@ class CattleMeasurementService {
         
         // สร้างข้อความแจ้งเตือนที่ระบุว่าขาดวัตถุประเภทใด
         List<String> missingObjects = [];
-        if (!hasYellowMark) missingObjects.add("จุดอ้างอิง");
-        if (!hasHeartGirth) missingObjects.add("รอบอก");
         if (!hasBodyLength) missingObjects.add("ความยาวลำตัว");
+        if (!hasHeartGirth) missingObjects.add("รอบอก");
+        if (!hasYellowMark) missingObjects.add("จุดอ้างอิง");
         
         String errorMsg = 'ไม่พบ ${missingObjects.join(", ")} ในภาพ กรุณาวัดด้วยตนเอง';
         
         return MeasurementResult(
           success: false,
           error: errorMsg,
-          detectionResult: detectionResult, // ส่งผลลัพธ์การตรวจจับบางส่วนกลับไปด้วย
+          detectionResult: detectionResult,
+        );
+      }
+      
+      // ตรวจสอบความครบถ้วนของข้อมูล (safety check)
+      if (yellowMarkObj == null || heartGirthObj == null || bodyLengthObj == null) {
+        print('ข้อผิดพลาด: พบวัตถุครบทั้ง 3 ประเภท แต่มีบางวัตถุเป็น null');
+        return MeasurementResult(
+          success: false,
+          error: 'เกิดข้อผิดพลาดในการประมวลผลข้อมูล กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
         );
       }
       
@@ -182,7 +215,7 @@ class CattleMeasurementService {
       
       // คำนวณระยะห่างระหว่างจุดของจุดอ้างอิง
       double yellowMarkPixelLength = math.sqrt(
-        math.pow(yellowMarkObj!.x2 - yellowMarkObj.x1, 2) + 
+        math.pow(yellowMarkObj.x2 - yellowMarkObj.x1, 2) + 
         math.pow(yellowMarkObj.y2 - yellowMarkObj.y1, 2)
       );
       
@@ -191,23 +224,32 @@ class CattleMeasurementService {
       print('อัตราส่วนการแปลงหน่วย: $pixelToCmRatio พิกเซล/ซม.');
       
       // ตรวจสอบอัตราส่วนว่าสมเหตุสมผลหรือไม่
-      if (pixelToCmRatio <= 0 || pixelToCmRatio > 50) {
-        print('อัตราส่วนการแปลงหน่วยไม่สมเหตุสมผล: $pixelToCmRatio พิกเซล/ซม.');
+      if (pixelToCmRatio <= 0) {
+        print('อัตราส่วนการแปลงหน่วยเป็น 0 หรือติดลบ: $pixelToCmRatio พิกเซล/ซม.');
         return MeasurementResult(
           success: false,
-          error: 'การวัดจุดอ้างอิงไม่ถูกต้อง กรุณาวัดด้วยตนเอง',
+          error: 'การวัดจุดอ้างอิงไม่ถูกต้อง (อัตราส่วน <= 0) กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
+        );
+      }
+      
+      if (pixelToCmRatio > 50) {
+        print('อัตราส่วนการแปลงหน่วยสูงเกินไป: $pixelToCmRatio พิกเซล/ซม.');
+        return MeasurementResult(
+          success: false,
+          error: 'การวัดจุดอ้างอิงไม่ถูกต้อง (อัตราส่วน > 50) กรุณาวัดด้วยตนเอง',
           detectionResult: detectionResult,
         );
       }
       
       // คำนวณความยาวของเส้นรอบอกและความยาวลำตัวในหน่วยพิกเซล
       double heartGirthPixels = math.sqrt(
-        math.pow(heartGirthObj!.x2 - heartGirthObj.x1, 2) + 
+        math.pow(heartGirthObj.x2 - heartGirthObj.x1, 2) + 
         math.pow(heartGirthObj.y2 - heartGirthObj.y1, 2)
       );
       
       double bodyLengthPixels = math.sqrt(
-        math.pow(bodyLengthObj!.x2 - bodyLengthObj.x1, 2) + 
+        math.pow(bodyLengthObj.x2 - bodyLengthObj.x1, 2) + 
         math.pow(bodyLengthObj.y2 - bodyLengthObj.y1, 2)
       );
       
@@ -229,6 +271,18 @@ class CattleMeasurementService {
       print('- รอบอก (ความสูง): ${heartGirthCm.toStringAsFixed(1)} ซม.');
       print('- รอบอก (เส้นรอบวง): ${heartGirthCircumference.toStringAsFixed(1)} ซม.');
       print('- ความยาวลำตัว: ${bodyLengthCm.toStringAsFixed(1)} ซม.');
+      
+      // ตรวจสอบค่าการวัดว่าสมเหตุสมผลหรือไม่
+      if (heartGirthCircumference <= 0 || bodyLengthCm <= 0) {
+        print('ค่าการวัดไม่ถูกต้อง: รอบอก = $heartGirthCircumference ซม., ความยาว = $bodyLengthCm ซม.');
+        return MeasurementResult(
+          success: false,
+          error: 'ค่าการวัดไม่ถูกต้อง (ค่า <= 0) กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
+          heartGirth: heartGirthCircumference > 0 ? heartGirthCircumference : null,
+          bodyLength: bodyLengthCm > 0 ? bodyLengthCm : null,
+        );
+      }
       
       // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว (สำหรับคำนวณน้ำหนัก)
       double bodyLengthInches = WeightCalculator.cmToInches(bodyLengthCm);
@@ -258,17 +312,29 @@ class CattleMeasurementService {
       print('- ความเชื่อมั่น: ${(confidence * 100).toStringAsFixed(1)}%');
       
       // ตรวจสอบว่าน้ำหนักเป็นไปได้หรือไม่
-      if (adjustedWeight <= 0 || adjustedWeight > 2000) {
-        print('น้ำหนักที่คำนวณได้ไม่อยู่ในช่วงที่เป็นไปได้: $adjustedWeight กก.');
+      if (adjustedWeight <= 0) {
+        print('น้ำหนักที่คำนวณได้ไม่ถูกต้อง (น้ำหนัก <= 0): $adjustedWeight กก.');
         return MeasurementResult(
           success: false,
-          error: 'น้ำหนักที่คำนวณได้ไม่สมเหตุสมผล กรุณาวัดด้วยตนเอง',
+          error: 'น้ำหนักที่คำนวณได้ไม่ถูกต้อง (น้ำหนัก <= 0) กรุณาวัดด้วยตนเอง',
           detectionResult: detectionResult,
           heartGirth: heartGirthCircumference,
           bodyLength: bodyLengthCm,
         );
       }
       
+      if (adjustedWeight > 2000) {
+        print('น้ำหนักที่คำนวณได้สูงเกินไป (น้ำหนัก > 2000): $adjustedWeight กก.');
+        return MeasurementResult(
+          success: false,
+          error: 'น้ำหนักที่คำนวณได้สูงเกินไป (> 2000 กก.) กรุณาวัดด้วยตนเอง',
+          detectionResult: detectionResult,
+          heartGirth: heartGirthCircumference,
+          bodyLength: bodyLengthCm,
+        );
+      }
+      
+      // ถ้าทุกอย่างผ่านการตรวจสอบ ส่งผลลัพธ์ที่สำเร็จกลับไป
       return MeasurementResult(
         success: true,
         heartGirth: heartGirthCircumference,
@@ -280,8 +346,10 @@ class CattleMeasurementService {
         detectionResult: detectionResult,
       );
       
-    } catch (e) {
+    } catch (e, stackTrace) {
+      // เพิ่ม stackTrace เพื่อช่วยในการ debug
       print('เกิดข้อผิดพลาดในการวิเคราะห์ภาพ: $e');
+      print('Stack trace: $stackTrace');
       return MeasurementResult(
         success: false,
         error: 'เกิดข้อผิดพลาดในการวิเคราะห์ภาพ: $e',
@@ -290,7 +358,7 @@ class CattleMeasurementService {
   }
   
   // คำนวณความเชื่อมั่นจากผลการตรวจจับ
-  double _calculateConfidence(detector.DetectionResult detectionResult) {
+  double _calculateConfidence(DetectionResult detectionResult) {
     double confidence = 0.8; // ค่าเริ่มต้น
     
     try {
@@ -317,7 +385,7 @@ class CattleMeasurementService {
   // เพิ่มเมธอด saveAnalyzedImage เพื่อบันทึกภาพที่มีการวิเคราะห์แล้ว
   Future<File?> saveAnalyzedImage(
     File originalImage,
-    detector.DetectionResult detectionResult,
+    DetectionResult detectionResult,
     [Map<String, dynamic>? options] // เพิ่มพารามิเตอร์ที่ 3 เป็น optional parameter
   ) async {
     try {
@@ -341,12 +409,12 @@ class CattleMeasurementService {
       for (var object in detectionResult.objects!) {
         // กำหนดสีตามประเภทของวัตถุ
         img.Color color;
-        if (object.classId == 0) { // Yellow_Mark (จุดอ้างอิง)
-          color = img.ColorRgb8(255, 255, 0); // เหลือง
-        } else if (object.classId == 1) { // Heart_Girth (รอบอก)
-          color = img.ColorRgb8(255, 0, 0); // แดง
-        } else if (object.classId == 2) { // Body_Length (ความยาวลำตัว)
+        if (object.classId == 0) { // Body Length (ความยาวลำตัว)
           color = img.ColorRgb8(0, 0, 255); // น้ำเงิน
+        } else if (object.classId == 1) { // Heart Girth (รอบอก)
+          color = img.ColorRgb8(255, 0, 0); // แดง
+        } else if (object.classId == 2) { // Yellow Mark (จุดอ้างอิง)
+          color = img.ColorRgb8(255, 255, 0); // เหลือง
         } else {
           color = img.ColorRgb8(128, 128, 128); // เทา
         }
@@ -407,7 +475,7 @@ class MeasurementResult {
   final double? adjustedWeight;
   final double? confidence;
   final String? error;
-  final detector.DetectionResult? detectionResult;
+  final DetectionResult? detectionResult;
   
   MeasurementResult({
     required this.success,

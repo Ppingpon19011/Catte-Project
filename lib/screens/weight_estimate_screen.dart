@@ -282,148 +282,221 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
 
   // ฟังก์ชัน _handleDetectionResult
   Future<void> _handleDetectionResult(MeasurementResult result) async {
+    if (!mounted) return;
+    
+    // อัปเดตสถานะการประมวลผลเป็นเสร็จสิ้น
     setState(() {
       _isProcessing = false;
     });
     
     if (result.success) {
-      // การตรวจจับสำเร็จและได้น้ำหนักที่ประมาณ
+      // =========================================
+      // กรณีการตรวจจับและวิเคราะห์สำเร็จ
+      // =========================================
+      
+      print('การวิเคราะห์สำเร็จ: น้ำหนัก = ${result.adjustedWeight ?? 0.0} กก.');
+      
+      // เก็บข้อมูลที่วิเคราะห์ได้
       setState(() {
         _estimatedWeight = result.adjustedWeight ?? 0.0;
         _bodyLengthCm = result.bodyLength ?? 0.0;
         _heartGirthCm = result.heartGirth ?? 0.0;
-        _confidence = result.confidence ?? 0.8;
+        _confidenceValue = result.confidence ?? 0.8;
         _hasResult = true;
+        _isManualMeasurement = false; // เป็นการวัดโดยอัตโนมัติ
+        
+        // เก็บผลการตรวจจับเพื่อแสดงภาพ
+        _detectionResult = result.detectionResult;
       });
       
-      // บันทึกภาพที่มีการวิเคราะห์แล้ว
-      if (result.detectionResult != null) {
-        _analyzedImageFile = await _cattleMeasurementService.saveAnalyzedImage(
-          _imageFile!,
-          result.detectionResult!,
+      // เลือกเฉพาะวัตถุที่มีความเชื่อมั่นสูงสุดสำหรับแต่ละประเภท
+      if (result.detectionResult != null && 
+          result.detectionResult!.objects != null && 
+          result.detectionResult!.objects!.isNotEmpty) {
+        
+        Map<int, detector.DetectedObject> bestObjects = {};
+        
+        // วนลูปผ่านวัตถุทั้งหมดที่ตรวจพบ
+        for (var obj in result.detectionResult!.objects!) {
+          int classId = obj.classId;
+          
+          // เก็บวัตถุที่มีความเชื่อมั่นสูงสุดสำหรับแต่ละประเภท
+          if (!bestObjects.containsKey(classId) || 
+              obj.confidence > bestObjects[classId]!.confidence) {
+            bestObjects[classId] = obj;
+          }
+        }
+        
+        // แสดง log วัตถุที่เลือก
+        bestObjects.forEach((classId, obj) {
+          print('เลือกวัตถุที่ดีที่สุดประเภท $classId (${_getClassNameById(classId)}) ' +
+                'ความเชื่อมั่น ${(obj.confidence * 100).toStringAsFixed(1)}%');
+        });
+        
+        // สร้าง DetectionResult ใหม่ที่มีเฉพาะวัตถุที่ดีที่สุด
+        var updatedDetectionResult = detector.DetectionResult(
+          success: true,
+          objects: bestObjects.values.toList(),
+          resizedImagePath: result.detectionResult!.resizedImagePath,
         );
+        
+        // อัปเดตผลการตรวจจับ
+        setState(() {
+          _detectionResult = updatedDetectionResult;
+        });
       }
       
-      // แสดงผลลัพธ์
-      await _showResultDialog();
+      // บันทึกภาพที่มีการวิเคราะห์แล้ว
+      try {
+        if (_detectionResult != null && _imageFile != null) {
+          // สร้างภาพวิเคราะห์และบันทึกลงไฟล์
+          _analyzedImageFile = await _cattleMeasurementService.saveAnalyzedImage(
+            _imageFile!,
+            _detectionResult!,
+          );
+        }
+      } catch (e) {
+        print('เกิดข้อผิดพลาดในการบันทึกภาพวิเคราะห์: $e');
+      }
+      
+      // แสดงผลลัพธ์ให้ผู้ใช้
+      if (mounted) {
+        _showResultDialog();
+      }
     } else {
-      // กรณีที่ตรวจจับไม่สำเร็จ แต่อาจมีการตรวจพบบางส่วน
+      // =========================================
+      // กรณีการตรวจจับหรือวิเคราะห์ไม่สำเร็จ
+      // =========================================
+      
+      // ตรวจสอบว่ามีการตรวจพบวัตถุบางส่วนหรือไม่
+      bool hasPartialDetection = false;
       bool hasYellowMark = false;
       bool hasHeartGirth = false;
       bool hasBodyLength = false;
       
-      // ตรวจสอบว่าตรวจพบวัตถุส่วนไหนบ้าง
-      if (result.detectionResult != null && result.detectionResult!.objects != null) {
+      if (result.detectionResult != null && 
+          result.detectionResult!.objects != null && 
+          result.detectionResult!.objects!.isNotEmpty) {
+        
+        hasPartialDetection = true;
+        
+        // ตรวจสอบว่าพบวัตถุประเภทใดบ้าง
         for (var obj in result.detectionResult!.objects!) {
-          if (obj.classId == 0) { // Yellow Mark
-            hasYellowMark = true;
-          } else if (obj.classId == 1) { // Heart Girth
-            hasHeartGirth = true;
-          } else if (obj.classId == 2) { // Body Length
-            hasBodyLength = true;
+          if (obj.classId == 0) hasYellowMark = true;      // จุดอ้างอิง
+          else if (obj.classId == 1) hasHeartGirth = true; // รอบอก
+          else if (obj.classId == 2) hasBodyLength = true; // ความยาวลำตัว
+        }
+        
+        // เก็บผลการตรวจจับบางส่วนไว้
+        setState(() {
+          _detectionResult = result.detectionResult;
+          _objectsDetected = true;
+        });
+        
+        // หากพบวัตถุบางส่วน ให้เลือกวัตถุที่มีความเชื่อมั่นสูงสุดสำหรับแต่ละประเภท
+        Map<int, detector.DetectedObject> bestObjects = {};
+        
+        for (var obj in result.detectionResult!.objects!) {
+          int classId = obj.classId;
+          
+          if (!bestObjects.containsKey(classId) || 
+              obj.confidence > bestObjects[classId]!.confidence) {
+            bestObjects[classId] = obj;
           }
+        }
+        
+        // สร้าง DetectionResult ใหม่ที่มีเฉพาะวัตถุที่ดีที่สุด
+        var updatedDetectionResult = detector.DetectionResult(
+          success: true,
+          objects: bestObjects.values.toList(),
+          resizedImagePath: result.detectionResult!.resizedImagePath,
+        );
+        
+        // อัปเดตผลการตรวจจับ
+        setState(() {
+          _detectionResult = updatedDetectionResult;
+        });
+        
+        // พยายามบันทึกภาพวิเคราะห์
+        try {
+          _analyzedImageFile = await _cattleMeasurementService.saveAnalyzedImage(
+            _imageFile!,
+            _detectionResult!,
+          );
+        } catch (e) {
+          print('เกิดข้อผิดพลาดในการบันทึกภาพวิเคราะห์: $e');
         }
       }
       
-      // แสดง dialog แจ้งเตือนพร้อมระบุว่าตรวจพบส่วนไหนบ้าง
-      bool? dialogResult = await showDialog<bool?>(
-        context: _buildContext,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: Text('ต้องวัดด้วยตนเอง'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('ไม่สามารถตรวจจับวัตถุได้ครบถ้วน กรุณาวัดด้วยตนเอง'),
-              SizedBox(height: 12),
-              Text('ผลการตรวจจับ:'),
-              _buildDetectionStatusRow('จุดอ้างอิง (Yellow Mark)', hasYellowMark),
-              _buildDetectionStatusRow('รอบอก (Heart Girth)', hasHeartGirth),
-              _buildDetectionStatusRow('ความยาวลำตัว (Body Length)', hasBodyLength),
-              SizedBox(height: 8),
-              Text(
-                'คุณจะต้องทำการวัดส่วนที่ขาดหายไปเพิ่มเติมในหน้าถัดไป',
-                style: TextStyle(fontStyle: FontStyle.italic, fontSize: 13),
+      // แสดงข้อความแจ้งให้ผู้ใช้ทราบ
+      if (hasPartialDetection) {
+        // กรณีตรวจพบบางส่วนแต่ไม่ครบถ้วน
+        await showDialog<bool?>(
+          context: _buildContext,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Text('การวิเคราะห์ไม่สมบูรณ์'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ตรวจพบวัตถุไม่ครบถ้วน กรุณาวัดด้วยตนเอง'),
+                SizedBox(height: 12),
+                Text('ผลการตรวจจับ:'),
+                _buildDetectionStatusRow('จุดอ้างอิง (Yellow Mark)', hasYellowMark),
+                _buildDetectionStatusRow('รอบอก (Heart Girth)', hasHeartGirth),
+                _buildDetectionStatusRow('ความยาวลำตัว (Body Length)', hasBodyLength),
+                SizedBox(height: 8),
+                Text(
+                  'คุณจะต้องทำการวัดส่วนที่ขาดหายไปเพิ่มเติมในหน้าถัดไป',
+                  style: TextStyle(fontStyle: FontStyle.italic, fontSize: 13),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context, false);
+                },
+                child: Text('ยกเลิก'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context, true);
+                },
+                child: Text('ไปหน้าวัดด้วยตนเอง'),
               ),
             ],
           ),
-          actions: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context, true);
-              },
-              child: Text('ดำเนินการต่อ'),
+        ).then((shouldOpenManualMeasurement) {
+          if (shouldOpenManualMeasurement == true) {
+            _navigateToManualMeasurement();
+          }
+        });
+      } else {
+        // กรณีไม่พบวัตถุใดๆ เลย
+        ScaffoldMessenger.of(_buildContext).showSnackBar(
+          SnackBar(
+            content: Text(result.error ?? 'การวิเคราะห์ไม่สำเร็จ กรุณาวัดด้วยตนเอง'),
+            duration: Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'วัดด้วยตนเอง',
+              onPressed: _navigateToManualMeasurement,
             ),
-          ],
-        ),
-      );
-      
-      // ตรวจสอบผลลัพธ์จาก dialog
-      if (dialogResult == true) {
-        // เก็บข้อมูลที่ตรวจพบบางส่วนเพื่อส่งไปยังหน้าวัดด้วยตนเอง
-        _detectionResult = result.detectionResult;
-        
-        await _openManualMeasurement();
-      }
-    }
-
-    // เพิ่มฟังก์ชันแสดงผลการตรวจจับก่อนไปหน้าวัดด้วยตนเอง
-    Future<void> _showDetectionResultDialog(detector.DetectionResult detectionResult) async {
-      // ตรวจสอบว่าตรวจพบวัตถุแต่ละประเภทหรือไม่
-      bool hasYellowMark = false;
-      bool hasHeartGirth = false;
-      bool hasBodyLength = false;
-      
-      if (detectionResult.objects != null) {
-        for (var obj in detectionResult.objects!) {
-          if (obj.classId == 0) hasYellowMark = true;  // จุดอ้างอิง
-          if (obj.classId == 1) hasHeartGirth = true;  // รอบอก
-          if (obj.classId == 2) hasBodyLength = true;  // ความยาวลำตัว
-        }
-      }
-      
-      await showDialog(
-        context: _buildContext,
-        builder: (context) => AlertDialog(
-          title: Text('ผลการตรวจจับวัตถุ'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('โมเดลได้ตรวจสอบภาพและพบวัตถุดังนี้:'),
-              SizedBox(height: 12),
-              _buildDetectionStatusRow('จุดอ้างอิง (Yellow Mark)', hasYellowMark),
-              _buildDetectionStatusRow('รอบอก (Heart Girth)', hasHeartGirth),
-              _buildDetectionStatusRow('ความยาวลำตัว (Body Length)', hasBodyLength),
-              SizedBox(height: 16),
-              
-              if (!hasYellowMark || !hasHeartGirth || !hasBodyLength)
-                Text(
-                  'วัตถุบางส่วนไม่ถูกตรวจพบ คุณสามารถวัดเพิ่มเติมในหน้าถัดไป',
-                  style: TextStyle(fontStyle: FontStyle.italic, color: Colors.orange),
-                ),
-            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: Text('ยกเลิก'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _navigateToManualMeasurement();
-              },
-              child: Text('ไปหน้าวัดด้วยตนเอง'),
-            ),
-          ],
-        ),
-      );
+        );
+      }
     }
+  }
 
+  // ฟังก์ชันช่วยสำหรับแปลง classId เป็นชื่อคลาส
+  String _getClassNameById(int classId) {
+    switch (classId) {
+      case 0: return 'จุดอ้างอิง';   // Yellow Mark
+      case 1: return 'รอบอก';       // Heart Girth
+      case 2: return 'ความยาวลำตัว'; // Body Length
+      default: return 'Unknown_$classId';
+    }
   }
 
   Widget _buildDetectionResults() {
@@ -2101,67 +2174,101 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                         border: Border.all(color: Colors.grey),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: _hasResult && _analyzedImageFile != null
-                        ? Image.file(
-                            _analyzedImageFile!,
-                            fit: BoxFit.contain,
-                          )
-                        : Column(
-                            children: [
-                              // แสดงรูปต้นฉบับ
-                              if (_imageFile != null) 
-                                Expanded(
-                                  flex: 2,
-                                  child: Image.file(
-                                    _imageFile!,
-                                    fit: BoxFit.contain,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          // 1. แสดงรูปต้นฉบับหรือรูปที่วิเคราะห์แล้ว
+                          if (_hasResult && _analyzedImageFile != null)
+                            // กรณีมีผลลัพธ์แล้วและมีไฟล์วิเคราะห์แล้ว ให้แสดงไฟล์วิเคราะห์
+                            Image.file(
+                              _analyzedImageFile!,
+                              fit: BoxFit.contain,
+                            )
+                          else if (_imageFile != null)
+                            // กรณีมีรูปต้นฉบับแต่ยังไม่มีไฟล์วิเคราะห์ ให้แสดงรูปต้นฉบับ
+                            Image.file(
+                              _imageFile!,
+                              fit: BoxFit.contain,
+                            )
+                          else
+                            // กรณีไม่มีรูปเลย ให้แสดงไอคอนกล้อง
+                            Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.camera_alt,
+                                    size: 64,
+                                    color: Colors.grey[400],
                                   ),
-                                ),
-                              
-                              // แสดงรูปที่ resize เพื่อนำไปใช้ใน model (ถ้ามี)
-                              if (_resizedImageFile != null)
-                                Expanded(
-                                  flex: 2,
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        'รูปที่ใช้ในโมเดล (${detector.CattleDetector.INPUT_SIZE}x${detector.CattleDetector.INPUT_SIZE})',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                                      ),
-                                      Expanded(
-                                        child: Image.file(
-                                          _resizedImageFile!,
-                                          fit: BoxFit.contain,
-                                        ),
-                                      ),
-                                    ],
+                                  SizedBox(height: 16),
+                                  Text(
+                                    'ไม่มีภาพ',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: Colors.grey,
+                                    ),
                                   ),
+                                ],
+                              ),
+                            ),
+                            
+                          // 2. วาดกรอบและเส้นการตรวจจับทับบนภาพ (เฉพาะเมื่อมีการตรวจจับและมีรูปภาพ)
+                          if (_imageFile != null && _detectionResult != null && 
+                              _detectionResult!.objects != null && 
+                              _detectionResult!.objects!.isNotEmpty && 
+                              !_hasResult) // แสดงเฉพาะกรณียังไม่มีผลวิเคราะห์สมบูรณ์
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: EnhancedMeasurementPainter(
+                                  _detectionResult!.objects!,
+                                  originalImageSize: Size(_imageFile!.lengthSync().toDouble(), _imageFile!.lengthSync().toDouble()),
                                 ),
-                                
-                              // กรณีไม่มีรูปภาพ
-                              if (_imageFile == null)
-                                Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.camera_alt,
-                                        size: 64,
-                                        color: Colors.grey[400],
+                              ),
+                            ),
+                            
+                          // 3. แสดงสถานะการประมวลผล
+                          if (_isProcessing)
+                            Container(
+                              color: Colors.black.withOpacity(0.5),
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircularProgressIndicator(
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                    SizedBox(height: 16),
+                                    Text(
+                                      'กำลังวิเคราะห์ภาพ...',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
                                       ),
-                                      SizedBox(height: 16),
-                                      Text(
-                                        'ไม่มีภาพ',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
-                            ],
-                          ),
+                              ),
+                            ),
+                            
+                          // 4. แสดงปุ่มวัดด้วยตนเองเมื่อมีการตรวจจับแต่ไม่สมบูรณ์
+                          if (_imageFile != null && _detectionResult != null && 
+                              !_isProcessing && !_hasResult)
+                            Positioned(
+                              right: 10,
+                              bottom: 10,
+                              child: ElevatedButton.icon(
+                                icon: Icon(Icons.edit),
+                                label: Text('วัดด้วยตนเอง'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: _navigateToManualMeasurement,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                     SizedBox(height: 20),
                     
@@ -2247,6 +2354,72 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         ),
       ),
     );
+  }
+
+  // เพิ่มตัวแปรเก็บรูปภาพที่วิเคราะห์แล้ว
+  Widget _buildAnalyzedImageView() {
+    if (_hasResult && _analyzedImageFile != null) {
+      return Image.file(
+        _analyzedImageFile!,
+        fit: BoxFit.contain,
+      );
+    } else if (_imageFile != null && _detectionResult != null && 
+              _detectionResult!.objects != null && 
+              _detectionResult!.objects!.isNotEmpty) {
+      // เมื่อมีการตรวจจับวัตถุแล้วแต่ยังไม่มีการวิเคราะห์สำเร็จ
+      // แสดงภาพพร้อมวาดกรอบหรือเส้นบนภาพ
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          // แสดงรูปต้นฉบับ
+          Image.file(
+            _imageFile!,
+            fit: BoxFit.contain,
+          ),
+          
+          // วาดกรอบหรือเส้นบนภาพ
+          CustomPaint(
+            painter: EnhancedMeasurementPainter(
+              _detectionResult!.objects ?? [],
+              originalImageSize: _imageFile != null ? 
+                Size(
+                  _imageFile!.readAsBytesSync().lengthInBytes.toDouble(),
+                  _imageFile!.readAsBytesSync().lengthInBytes.toDouble()
+                ) : null,
+            ),
+            size: Size.infinite,
+          ),
+        ],
+      );
+    } else if (_imageFile != null) {
+      // กรณีมีรูปภาพแต่ยังไม่มีผลการตรวจจับ
+      return Image.file(
+        _imageFile!,
+        fit: BoxFit.contain,
+      );
+    } else {
+      // กรณีไม่มีรูปภาพ
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.camera_alt,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            SizedBox(height: 16),
+            Text(
+              'ไม่มีภาพ',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   // วิดเจ็ตสำหรับแสดงภาพพร้อมการไฮไลท์การวัด
