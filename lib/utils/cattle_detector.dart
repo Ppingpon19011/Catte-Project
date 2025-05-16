@@ -643,7 +643,7 @@ class CattleDetector {
       print('ขนาด output หลังจากการแปลง: [$rows, $cols]');
       
       // ลดค่า confidence threshold ลงเพื่อให้ตรวจจับได้ง่ายขึ้น
-      double effectiveThreshold = confidenceThreshold * 0.7;  // ลดเหลือ 70% ของค่าเดิม
+      double effectiveThreshold = 0.0001;  // ลดเหลือ 70% ของค่าเดิม
       print('ปรับลดค่า confidence threshold เหลือ: $effectiveThreshold');
 
       // จำนวนคลาสทั้งหมดในโมเดล
