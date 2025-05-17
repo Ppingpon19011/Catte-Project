@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Rect;
+import 'dart:ui' show Rect;
 import 'dart:ui' as ui;
 import 'dart:math' as math;
-import '../utils/cattle_detector.dart';
+import '../utils/cattle_detector.dart' hide Rect;
 
 class ManualMeasurementPainter extends CustomPainter {
   final ui.Image? image;
@@ -31,7 +32,7 @@ class ManualMeasurementPainter extends CustomPainter {
   });
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas canvas, ui.Size canvasSize) {
     // ประกาศตัวแปรสำคัญเริ่มต้น
     double offsetX = 0;
     double offsetY = 0;
@@ -41,7 +42,7 @@ class ManualMeasurementPainter extends CustomPainter {
     if (image == null) {
       // วาดพื้นหลังสำหรับกรณีที่ไม่มีรูปภาพ
       canvas.drawRect(
-        Rect.fromLTWH(0, 0, size.width, size.height),
+        ui.Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height),
         Paint()..color = Colors.grey[300]!,
       );
       
@@ -59,21 +60,21 @@ class ManualMeasurementPainter extends CustomPainter {
       );
       
       textPainter.layout();
-      final xCenter = (size.width - textPainter.width) / 2;
-      final yCenter = (size.height - textPainter.height) / 2;
+      final xCenter = (canvasSize.width - textPainter.width) / 2;
+      final yCenter = (canvasSize.height - textPainter.height) / 2;
       textPainter.paint(canvas, Offset(xCenter, yCenter));
       
       return; // ออกจากเมธอดเพราะไม่มีรูปภาพ
     }
 
     // คำนวณอัตราส่วนเพื่อให้ภาพพอดีกับ Canvas
-    final double scaleX = size.width / image!.width;
-    final double scaleY = size.height / image!.height;
+    final double scaleX = canvasSize.width / image!.width;
+    final double scaleY = canvasSize.height / image!.height;
     baseScale = math.min(scaleX, scaleY);
     
     // คำนวณพิกัดเพื่อวางภาพไว้ตรงกลาง
-    offsetX = (size.width - image!.width * baseScale) / 2;
-    offsetY = (size.height - image!.height * baseScale) / 2;
+    offsetX = (canvasSize.width - image!.width * baseScale) / 2;
+    offsetY = (canvasSize.height - image!.height * baseScale) / 2;
     
     // วาดกรอบตรวจจับต้นฉบับ (bounding boxes)
     if (showOriginalBoxes) {
@@ -87,40 +88,40 @@ class ManualMeasurementPainter extends CustomPainter {
           ..strokeWidth = 2;
         
         // สร้างกรอบรอบพื้นที่การตรวจจับ
-        Rect detectionBox;
+        late Rect detectionBox;
         
         // ในกรณีของเส้น เราต้องสร้างกรอบรอบๆ เส้น
         if (obj.classId == 2) { // จุดอ้างอิง (Yellow Mark) - แนวนอน
           // สร้างกรอบยาวตามแนวนอน
-          detectionBox = Rect.fromLTWH(
+          detectionBox = Rect.fromLTRB(
             offsetX + (obj.x1 - 10) * baseScale, 
             offsetY + (obj.y1 - 20) * baseScale,
-            (obj.x2 - obj.x1 + 20) * baseScale, 
-            40 * baseScale
+            offsetX + (obj.x2 + 10) * baseScale, 
+            offsetY + (obj.y1 + 20) * baseScale
           );
         } else if (obj.classId == 1) { // รอบอก (Heart Girth) - แนวตั้ง
           // สร้างกรอบสูงตามแนวตั้ง
-          detectionBox = Rect.fromLTWH(
+          detectionBox = Rect.fromLTRB(
             offsetX + (obj.x1 - 20) * baseScale, 
             offsetY + obj.y1 * baseScale,
-            40 * baseScale, 
-            (obj.y2 - obj.y1) * baseScale
+            offsetX + (obj.x1 + 20) * baseScale, 
+            offsetY + obj.y2 * baseScale
           );
         } else if (obj.classId == 0) { // ความยาวลำตัว (Body Length) - แนวนอน/เฉียง
           // สร้างกรอบยาวตามแนวนอน
-          detectionBox = Rect.fromLTWH(
+          detectionBox = Rect.fromLTRB(
             offsetX + obj.x1 * baseScale, 
             offsetY + (obj.y1 - 20) * baseScale,
-            (obj.x2 - obj.x1) * baseScale, 
-            40 * baseScale
+            offsetX + obj.x2 * baseScale, 
+            offsetY + (obj.y1 + 20) * baseScale
           );
         } else {
           // กรอบปกติสำหรับวัตถุไม่รู้จัก
-          detectionBox = Rect.fromLTWH(
+          detectionBox = Rect.fromLTRB(
             offsetX + obj.x1 * baseScale, 
             offsetY + obj.y1 * baseScale,
-            (obj.x2 - obj.x1) * baseScale, 
-            (obj.y2 - obj.y1) * baseScale
+            offsetX + obj.x2 * baseScale, 
+            offsetY + obj.y2 * baseScale
           );
         }
         
@@ -140,8 +141,8 @@ class ManualMeasurementPainter extends CustomPainter {
     }
     
     // วาดภาพ
-    final src = Rect.fromLTWH(0, 0, image!.width.toDouble(), image!.height.toDouble());
-    final dst = Rect.fromLTWH(offsetX, offsetY, image!.width * baseScale, image!.height * baseScale);
+    final src = ui.Rect.fromLTWH(0, 0, image!.width.toDouble(), image!.height.toDouble());
+    final dst = ui.Rect.fromLTWH(offsetX, offsetY, image!.width * baseScale, image!.height * baseScale);
     
     // วาดภาพลงบน Canvas
     canvas.drawImageRect(image!, src, dst, Paint());
@@ -360,7 +361,7 @@ class ManualMeasurementPainter extends CustomPainter {
     textPainter.layout();
     
     // วาดพื้นหลังสำหรับข้อความ
-    final bgRect = Rect.fromLTWH(
+    final bgRect = ui.Rect.fromLTWH(
       x,
       y - textPainter.height,
       textPainter.width + 8,

@@ -419,29 +419,16 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     detector.DetectedObject? heartGirthObj;
     detector.DetectedObject? bodyLengthObj;
 
-    // เพิ่มการตรวจสอบเพื่อหา Yellow Mark ก่อน
-    List<detector.DetectedObject> potentialYellowMarks = [];
-
     for (var obj in _detectedObjects) {
-        if (obj.classId == 0) { // Yellow Mark
-            potentialYellowMarks.add(obj);
-            _hasYellowMark = true;
-        }
-    }
-
-    // เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด
-    if (potentialYellowMarks.isNotEmpty) {
-        potentialYellowMarks.sort((a, b) => b.confidence.compareTo(a.confidence));
-        yellowMarkObj = potentialYellowMarks.first;
-        print('เลือก Yellow Mark ที่มีความเชื่อมั่นสูงสุด: ${yellowMarkObj.confidence}');
-    }
-    
-    for (var obj in _detectedObjects) {
-      if (obj.classId == 1) { // Heart Girth
+      if (obj.classId == 2) { // จุดอ้างอิง (Yellow Mark)
+        yellowMarkObj = obj;
+        _hasYellowMark = true;
+      } 
+      else if (obj.classId == 1) { // รอบอก (Heart Girth)
         heartGirthObj = obj;
         _hasHeartGirth = true;
-      }
-      if (obj.classId == 2) { // Body Length
+      } 
+      else if (obj.classId == 0) { // ความยาวลำตัว (Body Length)
         bodyLengthObj = obj;
         _hasBodyLength = true;
       }
@@ -454,16 +441,15 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
         _bodyLengthCm = 0.0;
         _heartGirthCm = 0.0;
         _estimatedWeight = 0.0;
-        
       });
 
       // แสดงข้อความแจ้งเตือน
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('ไม่พบจุดอ้างอิง (Yellow Mark) กรุณาตรวจสอบการวางตำแหน่งจุดอ้างอิงในภาพ'),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 3),
-          ),
+        SnackBar(
+          content: Text('ไม่พบจุดอ้างอิง (Yellow Mark) กรุณาตรวจสอบการวางตำแหน่งจุดอ้างอิงในภาพ'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
       );
 
       return;
@@ -483,22 +469,28 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     // คำนวณขนาดจริง
     if (_hasHeartGirth && _hasBodyLength) {
       // คำนวณความยาวของเส้นในพิกเซล
-      final bodyLengthWidth = math.sqrt(
+      final bodyLengthPixels = math.sqrt(
         math.pow(bodyLengthObj!.x2 - bodyLengthObj.x1, 2) + 
         math.pow(bodyLengthObj.y2 - bodyLengthObj.y1, 2)
       );
       
-      final heartGirthHeight = (heartGirthObj!.y2 - heartGirthObj.y1).abs();
+      final heartGirthPixels = math.sqrt(
+        math.pow(heartGirthObj!.x2 - heartGirthObj.x1, 2) + 
+        math.pow(heartGirthObj.y2 - heartGirthObj.y1, 2)
+      );
       
       // คำนวณขนาดจริงในหน่วยเซนติเมตร
-      _bodyLengthCm = bodyLengthWidth / _scaleRatio;
-      _heartGirthCm = heartGirthHeight / _scaleRatio;
-
-      double heartGirthCircumference = math.pi * _heartGirthCm;
+      _bodyLengthCm = bodyLengthPixels / _scaleRatio;
+      
+      // สำหรับรอบอก จะต้องแปลงความสูงเป็นเส้นรอบวง
+      double heartGirthHeight = heartGirthPixels / _scaleRatio;
+      _heartGirthCm = math.pi * heartGirthHeight; // ประมาณเส้นรอบวงจากความสูง
+      
+      print('- รอบอก: $_heartGirthCm ซม.');
       
       // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว
       double bodyLengthInches = WeightCalculator.cmToInches(_bodyLengthCm);
-      double heartGirthInches = WeightCalculator.cmToInches(heartGirthCircumference);
+      double heartGirthInches = WeightCalculator.cmToInches(_heartGirthCm);
       
       // คำนวณน้ำหนักจาก WeightCalculator
       double weightInKg = WeightCalculator.calculateWeight(heartGirthInches, bodyLengthInches);
@@ -511,28 +503,45 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
         ageMonths,
       );
     } else {
-      // ยังวัดไม่ครบ
+      // ยังวัดไม่ครบ - คำนวณเฉพาะส่วนที่วัดได้
       if (_hasBodyLength) {
-        final bodyLengthWidth = math.sqrt(
+        final bodyLengthPixels = math.sqrt(
           math.pow(bodyLengthObj!.x2 - bodyLengthObj.x1, 2) + 
           math.pow(bodyLengthObj.y2 - bodyLengthObj.y1, 2)
         );
-        _bodyLengthCm = bodyLengthWidth / _scaleRatio;
+        _bodyLengthCm = bodyLengthPixels / _scaleRatio;
       } else {
         _bodyLengthCm = 0.0;
       }
       
       if (_hasHeartGirth) {
-        final heartGirthHeight = math.sqrt(
+        final heartGirthPixels = math.sqrt(
           math.pow(heartGirthObj!.x2 - heartGirthObj.x1, 2) + 
           math.pow(heartGirthObj.y2 - heartGirthObj.y1, 2)
         );
-        _heartGirthCm = heartGirthHeight / _scaleRatio;
+        
+        double heartGirthHeight = heartGirthPixels / _scaleRatio;
+        _heartGirthCm = math.pi * heartGirthHeight; // ประมาณเส้นรอบวงจากความสูง
       } else {
         _heartGirthCm = 0.0;
       }
       
       _estimatedWeight = 0.0;
+      
+      // แสดงข้อความแจ้งเตือนว่ายังต้องวัดเพิ่มเติม
+      List<String> missingMeasurements = [];
+      if (!_hasBodyLength) missingMeasurements.add("ความยาวลำตัว");
+      if (!_hasHeartGirth) missingMeasurements.add("รอบอก");
+      
+      if (missingMeasurements.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('กรุณาวัด${missingMeasurements.join(" และ ")}เพิ่มเติมเพื่อคำนวณน้ำหนัก'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
     
     // อัพเดท UI
@@ -545,12 +554,13 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
       return Rect.zero;
     }
     
-    final double screenWidth = _viewportSize.width;
-    final double screenHeight = _viewportSize.height;
+    // ใช้ขนาดจริงของหน้าจอแทนการใช้ค่า fixed
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double screenHeight = MediaQuery.of(context).size.height;
     
-    // คำนวณอัตราส่วนสำหรับการ fit
+    // การแสดงผลมาตรฐานสำหรับ landscape mode
     final double screenRatio = screenWidth / screenHeight;
-    final double imageRatio = _imageSize.width / _imageSize.height;
+    final double imageRatio = _image!.width / _image!.height;
     
     double width, height;
     double x, y;
@@ -589,8 +599,8 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     }
     
     // แปลงพิกัดจากหน้าจอเป็นพิกัดในภาพ
-    final double imageX = (screenPoint.dx - imageRect.left) * _imageSize.width / imageRect.width;
-    final double imageY = (screenPoint.dy - imageRect.top) * _imageSize.height / imageRect.height;
+    final double imageX = (screenPoint.dx - imageRect.left) * _image!.width / imageRect.width;
+    final double imageY = (screenPoint.dy - imageRect.top) * _image!.height / imageRect.height;
     
     return Offset(imageX, imageY);
   }
@@ -604,8 +614,8 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     final Rect imageRect = _getImageRect();
     
     // แปลงพิกัดจากภาพเป็นพิกัดบนหน้าจอ
-    final double screenX = imageRect.left + (imagePoint.dx / _imageSize.width) * imageRect.width;
-    final double screenY = imageRect.top + (imagePoint.dy / _imageSize.height) * imageRect.height;
+    final double screenX = imageRect.left + (imagePoint.dx / _image!.width) * imageRect.width;
+    final double screenY = imageRect.top + (imagePoint.dy / _image!.height) * imageRect.height;
     
     return Offset(screenX, screenY);
   }
@@ -867,11 +877,11 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
   String _getLabelByClassId(int classId) {
     switch (classId) {
       case 0:
-        return 'จุดอ้างอิง'; // Yellow Mark
+        return 'ความยาวลำตัว'; // Body Length
       case 1:
         return 'รอบอก'; // Heart Girth
       case 2:
-        return 'ความยาวลำตัว'; // Body Length
+        return 'จุดอ้างอิง'; // Yellow Mark
       default:
         return 'ไม่ทราบประเภท';
     }

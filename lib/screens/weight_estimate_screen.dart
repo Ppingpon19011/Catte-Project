@@ -290,10 +290,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     });
     
     if (result.success) {
-      // =========================================
       // กรณีการตรวจจับและวิเคราะห์สำเร็จ
-      // =========================================
-      
       print('การวิเคราะห์สำเร็จ: น้ำหนัก = ${result.adjustedWeight ?? 0.0} กก.');
       
       // เก็บข้อมูลที่วิเคราะห์ได้
@@ -361,12 +358,10 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
       
       // แสดงผลลัพธ์ให้ผู้ใช้
       if (mounted) {
-        _showResultDialog();
+        await _showResultDialog();
       }
     } else {
-      // =========================================
       // กรณีการตรวจจับหรือวิเคราะห์ไม่สำเร็จ
-      // =========================================
       
       // ตรวจสอบว่ามีการตรวจพบวัตถุบางส่วนหรือไม่
       bool hasPartialDetection = false;
@@ -382,9 +377,10 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         
         // ตรวจสอบว่าพบวัตถุประเภทใดบ้าง
         for (var obj in result.detectionResult!.objects!) {
-          if (obj.classId == 0) hasYellowMark = true;      // จุดอ้างอิง
+          // แก้ไขตรงนี้: แก้ class id ให้ถูกต้องตามที่กำหนด
+          if (obj.classId == 2) hasYellowMark = true;     // จุดอ้างอิง
           else if (obj.classId == 1) hasHeartGirth = true; // รอบอก
-          else if (obj.classId == 2) hasBodyLength = true; // ความยาวลำตัว
+          else if (obj.classId == 0) hasBodyLength = true; // ความยาวลำตัว
         }
         
         // เก็บผลการตรวจจับบางส่วนไว้

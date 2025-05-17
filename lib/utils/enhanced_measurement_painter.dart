@@ -46,7 +46,6 @@ class EnhancedMeasurementPainter extends CustomPainter {
 
     // วาดกรอบสำหรับแต่ละวัตถุที่ตรวจพบ
     for (var obj in objects) {
-      Rect rect;
       Paint paint;
       String label;
 
@@ -75,114 +74,93 @@ class EnhancedMeasurementPainter extends CustomPainter {
       double x2 = obj.x2 * scaleX;
       double y2 = obj.y2 * scaleY;
 
-      rect = Rect.fromLTRB(x1, y1, x2, y2);
-
-      // แสดงกรอบที่ประมาณค่าเป็นเส้นประ
-      if (obj.className.contains('Estimated')) {
-        _drawDashedRect(canvas, rect, paint);
-      } else {
-        canvas.drawRect(rect, paint);
-      }
-
-      // แสดงข้อความระบุประเภท
-      final textStyle = TextStyle(
-        color: Colors.white,
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-        shadows: [
-          Shadow(
-            offset: Offset(1.0, 1.0),
-            blurRadius: 3.0,
-            color: Colors.black,
-          ),
-        ],
+      // วาดเส้นตรงสำหรับการวัด
+      canvas.drawLine(
+        Offset(x1, y1),
+        Offset(x2, y2),
+        paint,
       );
 
-      final textSpan = TextSpan(
-        text: label,
-        style: textStyle,
-      );
+      // วาดจุดที่ปลายทั้งสองด้าน (หมุด)
+      _drawEndpoint(canvas, Offset(x1, y1), paint);
+      _drawEndpoint(canvas, Offset(x2, y2), paint);
 
-      final textPainter = TextPainter(
-        text: textSpan,
-        textDirection: TextDirection.ltr,
-      );
-      textPainter.layout();
-
-      // สร้างพื้นหลังสำหรับข้อความ
-      final bgRect = Rect.fromLTWH(
-        x1, 
-        y1 - textPainter.height - 4,
-        textPainter.width + 8,
-        textPainter.height + 4,
-      );
-
-      // สีพื้นหลังตามประเภทวัตถุ
-      Color bgColor;
-      switch (obj.classId) {
-        case 0: // Body Length
-          bgColor = Colors.blue.withOpacity(0.7);
-          break;
-        case 1: // Heart Girth
-          bgColor = Colors.red.withOpacity(0.7);
-          break;
-        case 2: // Yellow Mark
-          bgColor = Colors.amber.withOpacity(0.7);
-          break;
-        default:
-          bgColor = Colors.grey.withOpacity(0.7);
-      }
-
-      final bgPaint = Paint()..color = bgColor;
-      canvas.drawRect(bgRect, bgPaint);
-      textPainter.paint(canvas, Offset(x1 + 4, y1 - textPainter.height - 2));
+      // คำนวณความยาวของเส้น
+      final double length = (Offset(x2, y2) - Offset(x1, y1)).distance;
+      
+      // คำนวณจุดกึ่งกลางของเส้น
+      final double midX = (x1 + x2) / 2;
+      final double midY = (y1 + y2) / 2;
+      
+      // วาดชื่อและความยาวของเส้น
+      _drawLabel(canvas, label, x1, y1 - 20, paint.color);
+      _drawLabel(canvas, '${(length / scaleX).toStringAsFixed(1)} px', midX, midY, paint.color);
     }
   }
 
-  // ฟังก์ชันสำหรับวาดเส้นประ
-  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
-    final double dashWidth = 5;
-    final double dashSpace = 3;
+  // วาดจุดที่ปลายของเส้น
+  void _drawEndpoint(Canvas canvas, Offset position, Paint paint) {
+    canvas.drawCircle(
+      position,
+      8.0, // ขนาดจุด
+      Paint()
+        ..color = paint.color.withOpacity(0.7)
+        ..style = PaintingStyle.fill
+    );
+    canvas.drawCircle(
+      position,
+      8.0, // ขนาดจุด
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+    );
+  }
+
+  // วาดป้ายกำกับใต้เส้น
+  void _drawLabel(Canvas canvas, String text, double x, double y, Color color) {
+    final textStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 14,
+      fontWeight: FontWeight.bold,
+      shadows: [
+        Shadow(
+          offset: Offset(1.0, 1.0),
+          blurRadius: 3.0,
+          color: Colors.black,
+        ),
+      ],
+    );
+
+    final textSpan = TextSpan(
+      text: text,
+      style: textStyle,
+    );
+
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+
+    // สร้างพื้นหลังสำหรับข้อความ
+    final bgRect = Rect.fromLTWH(
+      x, 
+      y - textPainter.height - 4,
+      textPainter.width + 8,
+      textPainter.height + 4,
+    );
+
+    // สีพื้นหลังตามประเภทวัตถุ
+    Color bgColor = color.withOpacity(0.7);
+
+    final bgPaint = Paint()..color = bgColor;
     
-    // วาดเส้นด้านบน
-    double startX = rect.left;
-    final double topY = rect.top;
-    while (startX < rect.right) {
-      double endX = startX + dashWidth;
-      if (endX > rect.right) endX = rect.right;
-      canvas.drawLine(Offset(startX, topY), Offset(endX, topY), paint);
-      startX = endX + dashSpace;
-    }
+    // วาดพื้นหลังแบบมีมุมโค้ง
+    final rrect = RRect.fromRectAndRadius(bgRect, Radius.circular(4));
+    canvas.drawRRect(rrect, bgPaint);
     
-    // วาดเส้นด้านล่าง
-    startX = rect.left;
-    final double bottomY = rect.bottom;
-    while (startX < rect.right) {
-      double endX = startX + dashWidth;
-      if (endX > rect.right) endX = rect.right;
-      canvas.drawLine(Offset(startX, bottomY), Offset(endX, bottomY), paint);
-      startX = endX + dashSpace;
-    }
-    
-    // วาดเส้นด้านซ้าย
-    double startY = rect.top;
-    final double leftX = rect.left;
-    while (startY < rect.bottom) {
-      double endY = startY + dashWidth;
-      if (endY > rect.bottom) endY = rect.bottom;
-      canvas.drawLine(Offset(leftX, startY), Offset(leftX, endY), paint);
-      startY = endY + dashSpace;
-    }
-    
-    // วาดเส้นด้านขวา
-    startY = rect.top;
-    final double rightX = rect.right;
-    while (startY < rect.bottom) {
-      double endY = startY + dashWidth;
-      if (endY > rect.bottom) endY = rect.bottom;
-      canvas.drawLine(Offset(rightX, startY), Offset(rightX, endY), paint);
-      startY = endY + dashSpace;
-    }
+    textPainter.paint(canvas, Offset(x + 4, y - textPainter.height - 2));
   }
 
   @override
