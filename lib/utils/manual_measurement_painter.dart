@@ -70,6 +70,8 @@ class ManualMeasurementPainter extends CustomPainter {
     // คำนวณอัตราส่วนเพื่อให้ภาพพอดีกับ Canvas
     final double scaleX = canvasSize.width / image!.width;
     final double scaleY = canvasSize.height / image!.height;
+    
+    // ใช้การรักษาอัตราส่วนภาพ (aspect ratio) โดยใช้ค่าที่น้อยกว่า
     baseScale = math.min(scaleX, scaleY);
     
     // คำนวณพิกัดเพื่อวางภาพไว้ตรงกลาง
@@ -199,7 +201,7 @@ class ManualMeasurementPainter extends CustomPainter {
         paint = selectedPaint;
       }
       
-      // แปลงพิกัดให้ตรงกับขนาดของ Canvas
+      // แปลงพิกัดให้ตรงกับขนาดของ Canvas โดยคำนึงถึงอัตราส่วนภาพ
       final x1 = offsetX + obj.x1 * baseScale;
       final y1 = offsetY + obj.y1 * baseScale;
       final x2 = offsetX + obj.x2 * baseScale;

@@ -289,9 +289,9 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
       bool isNewLine = (obj.x1 == 0 && obj.y1 == 0 && obj.x2 == 0 && obj.y2 == 0);
       
       if (isNewLine) {
-        if (obj.classId == 0) { // จุดอ้างอิง - แนวนอน
+        if (obj.classId == 2) { // จุดอ้างอิง - แนวนอน
           _detectedObjects[i] = detector.DetectedObject(
-            classId: 0,
+            classId: 2,
             className: 'จุดอ้างอิง',
             confidence: 1.0,
             x1: centerX - referenceLength / 2,
@@ -311,9 +311,9 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
             y2: centerY + heartGirthHeight / 2,
           );
         }
-        else if (obj.classId == 2) { // ความยาวลำตัว - แนวนอน
+        else if (obj.classId == 0) { // ความยาวลำตัว - แนวนอน
           _detectedObjects[i] = detector.DetectedObject(
-            classId: 2,
+            classId: 0,
             className: 'ความยาวลำตัว',
             confidence: 1.0,
             x1: centerX - bodyLength / 2,
@@ -338,7 +338,7 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
   // เส้นวัดจุดอ้างอิง (Yellow Mark)
   if (!_hasYellowMark) {
     _detectedObjects.add(detector.DetectedObject(
-      classId: 0,
+      classId: 2,
       className: 'จุดอ้างอิง',
       confidence: 1.0,
       x1: 0, y1: 0, x2: 0, y2: 0, // ค่าเริ่มต้น
@@ -364,7 +364,7 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
   // เส้นวัดความยาวลำตัว (Body Length)
   if (!_hasBodyLength) {
     _detectedObjects.add(detector.DetectedObject(
-      classId: 2,
+      classId: 0,
       className: 'ความยาวลำตัว',
       confidence: 1.0,
       x1: 0, y1: 0, x2: 0, y2: 0, // ค่าเริ่มต้น
@@ -388,11 +388,11 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
 
         // ตรวจสอบแต่ละประเภทว่ามีการตรวจพบหรือไม่
       for (var obj in _detectedObjects) {
-        if (obj.classId == 0) { // Yellow Mark
+        if (obj.classId == 2) { // Yellow Mark
           _hasYellowMark = true;
         } else if (obj.classId == 1) { // Heart Girth
           _hasHeartGirth = true;
-        } else if (obj.classId == 2) { // Body Length
+        } else if (obj.classId == 0) { // Body Length
           _hasBodyLength = true;
         }
       }
@@ -558,13 +558,14 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     final double screenWidth = MediaQuery.of(context).size.width;
     final double screenHeight = MediaQuery.of(context).size.height;
     
-    // การแสดงผลมาตรฐานสำหรับ landscape mode
+    // อัตราส่วนของหน้าจอและภาพ
     final double screenRatio = screenWidth / screenHeight;
     final double imageRatio = _image!.width / _image!.height;
     
     double width, height;
     double x, y;
     
+    // รักษาอัตราส่วนภาพโดยใช้ min scale
     if (imageRatio > screenRatio) {
       // ถ้าภาพกว้างกว่า ให้ fit ตามความกว้าง
       width = screenWidth;
@@ -598,9 +599,12 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
       screenPoint = Offset(x, y);
     }
     
-    // แปลงพิกัดจากหน้าจอเป็นพิกัดในภาพ
-    final double imageX = (screenPoint.dx - imageRect.left) * _image!.width / imageRect.width;
-    final double imageY = (screenPoint.dy - imageRect.top) * _image!.height / imageRect.height;
+    // แปลงพิกัดจากหน้าจอเป็นพิกัดในภาพ โดยคำนึงถึงอัตราส่วนภาพ
+    final double screenToImageX = _image!.width / imageRect.width;
+    final double screenToImageY = _image!.height / imageRect.height;
+    
+    final double imageX = (screenPoint.dx - imageRect.left) * screenToImageX;
+    final double imageY = (screenPoint.dy - imageRect.top) * screenToImageY;
     
     return Offset(imageX, imageY);
   }
@@ -613,9 +617,12 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     
     final Rect imageRect = _getImageRect();
     
-    // แปลงพิกัดจากภาพเป็นพิกัดบนหน้าจอ
-    final double screenX = imageRect.left + (imagePoint.dx / _image!.width) * imageRect.width;
-    final double screenY = imageRect.top + (imagePoint.dy / _image!.height) * imageRect.height;
+    // แปลงพิกัดจากภาพเป็นพิกัดบนหน้าจอ โดยคำนึงถึงอัตราส่วนภาพ
+    final double imageToScreenX = imageRect.width / _image!.width;
+    final double imageToScreenY = imageRect.height / _image!.height;
+    
+    final double screenX = imageRect.left + (imagePoint.dx * imageToScreenX);
+    final double screenY = imageRect.top + (imagePoint.dy * imageToScreenY);
     
     return Offset(screenX, screenY);
   }
@@ -737,9 +744,9 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
         // คำนวณการวัดใหม่
         _calculateMeasurements();
       });
-    }else {
-        // กรณีที่ _dragStartPosition เป็น null ให้กำหนดค่าใหม่
-        _dragStartPosition = details.localPosition;
+    } else {
+      // กรณีที่ _dragStartPosition เป็น null ให้กำหนดค่าใหม่
+      _dragStartPosition = details.localPosition;
     }
   }
 
@@ -887,20 +894,6 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     }
   }
   
-  // ฟังก์ชันสำหรับดึงสีตามประเภทของวัตถุ
-  Color _getColorByObjectType(int objectType) {
-    switch (objectType) {
-      case 0:
-        return Colors.amber; // Yellow Mark
-      case 1:
-        return Colors.red; // Heart Girth
-      case 2:
-        return Colors.blue; // Body Length
-      default:
-        return Colors.grey;
-    }
-  }
-  
   // เพิ่มฟังก์ชัน Reset สำหรับปุ่ม Reset
   void _resetLines() {
     setState(() {
@@ -916,9 +909,9 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
         
         // ตรวจสอบประเภทที่มี
         for (var obj in _detectedObjects) {
-          if (obj.classId == 0) _hasYellowMark = true;
+          if (obj.classId == 2) _hasYellowMark = true;
           else if (obj.classId == 1) _hasHeartGirth = true;
-          else if (obj.classId == 2) _hasBodyLength = true;
+          else if (obj.classId == 0) _hasBodyLength = true;
         }
       }
       

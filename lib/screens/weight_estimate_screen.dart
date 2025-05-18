@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'dart:math';
+import 'dart:math' as math;
 import 'dart:async';
 import '../models/cattle.dart';
 import '../models/weight_record.dart';
@@ -110,6 +110,122 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     }
     
     super.dispose();
+  }
+
+  Future<void> _fixCoordinatesForModelDetection() async {
+    if (_detectionResult == null || _detectionResult!.objects == null || 
+        _detectionResult!.objects!.isEmpty || _imageFile == null) {
+      return;
+    }
+    
+    try {
+      print('เริ่มปรับพิกัดตามขนาดภาพต้นฉบับ...');
+      
+      // รับขนาดภาพต้นฉบับจากไฟล์
+      final originalSize = await _getImageDimensions(_imageFile!);
+      if (originalSize == null || originalSize.width == 0 || originalSize.height == 0) {
+        print('ไม่สามารถรับขนาดภาพได้');
+        return;
+      }
+      
+      // ขนาดภาพที่ใช้ในโมเดล (ปรับให้ใช้ค่าจริงจาก detection result)
+      double modelWidth = 1280.0;
+      double modelHeight = 1280.0;
+      
+      // ถ้ามีขนาดภาพจาก detection result ให้ใช้ขนาดนั้นแทน
+      if (_detectionResult!.originalImageSize != null) {
+        modelWidth = _detectionResult!.originalImageSize!.width;
+        modelHeight = _detectionResult!.originalImageSize!.height;
+      }
+      
+      print('ขนาดภาพต้นฉบับ: ${originalSize.width}x${originalSize.height}');
+      print('ขนาดภาพในโมเดล: ${modelWidth}x${modelHeight}');
+      
+      // คำนวณอัตราส่วน โดยคำนึงถึงการรักษาอัตราส่วนภาพ (aspect ratio)
+      double scaleX = originalSize.width / modelWidth;
+      double scaleY = originalSize.height / modelHeight;
+      
+      // ใช้การรักษาอัตราส่วนภาพแบบเดียวกับที่ใช้ในการปรับขนาดภาพก่อนส่งเข้าโมเดล
+      double scale = math.min(scaleX, scaleY);
+      
+      print('อัตราส่วนการปรับขนาด: scaleX=$scaleX, scaleY=$scaleY, scale=$scale');
+      
+      // ปรับพิกัดของทุกวัตถุที่ตรวจพบด้วยอัตราส่วนที่ถูกต้อง
+      List<detector.DetectedObject> adjustedObjects = [];
+      
+      for (var obj in _detectionResult!.objects!) {
+        print('วัตถุก่อนปรับ: ${obj.className} พิกัด: x1=${obj.x1}, y1=${obj.y1}, x2=${obj.x2}, y2=${obj.y2}');
+        
+        // คำนวณพิกัดใหม่โดยใช้อัตราส่วนที่ถูกต้อง
+        double newX1 = obj.x1 * scaleX;
+        double newY1 = obj.y1 * scaleY;
+        double newX2 = obj.x2 * scaleX;
+        double newY2 = obj.y2 * scaleY;
+        
+        // คำนวณ bounding box ใหม่ถ้ามี
+        detector.Rect? newBoundingBox = null;
+        if (obj.boundingBox != null) {
+          newBoundingBox = detector.Rect(
+            left: obj.boundingBox!.left * scaleX,
+            top: obj.boundingBox!.top * scaleY,
+            right: obj.boundingBox!.right * scaleX,
+            bottom: obj.boundingBox!.bottom * scaleY,
+          );
+        }
+        
+        var adjustedObj = detector.DetectedObject(
+          classId: obj.classId,
+          className: obj.className,
+          confidence: obj.confidence,
+          x1: newX1,
+          y1: newY1,
+          x2: newX2,
+          y2: newY2,
+          boundingBox: newBoundingBox,
+        );
+        
+        print('วัตถุหลังปรับ: ${adjustedObj.className} พิกัด: x1=${adjustedObj.x1}, y1=${adjustedObj.y1}, x2=${adjustedObj.x2}, y2=${adjustedObj.y2}');
+        adjustedObjects.add(adjustedObj);
+      }
+      
+      // อัปเดต _detectionResult ด้วยพิกัดที่ปรับแล้ว
+      setState(() {
+        _detectionResult = detector.DetectionResult(
+          success: _detectionResult!.success,
+          objects: adjustedObjects,
+          resizedImagePath: _detectionResult!.resizedImagePath,
+          originalImageSize: _detectionResult!.originalImageSize,
+        );
+        
+        print('อัปเดต _detectionResult สำเร็จ พร้อมข้อมูลขนาดภาพต้นฉบับ: ${originalSize.width}x${originalSize.height}');
+      });
+      
+      print('ปรับพิกัดเสร็จสิ้น');
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการปรับพิกัด: $e');
+    }
+  }
+
+  // ฟังก์ชันช่วยในการรับขนาดภาพ
+  Future<Size?> _getImageDimensions(File imageFile) async {
+    try {
+      final Completer<Size> completer = Completer();
+      final Image image = Image.file(imageFile);
+      
+      image.image.resolve(ImageConfiguration()).addListener(
+        ImageStreamListener((ImageInfo info, bool _) {
+          completer.complete(Size(
+            info.image.width.toDouble(),
+            info.image.height.toDouble(),
+          ));
+        })
+      );
+      
+      return await completer.future;
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการรับขนาดภาพ: $e');
+      return null;
+    }
   }
 
   // ฟังก์ชัน _openManualMeasurement ที่ต้องแก้ไข
@@ -280,7 +396,36 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     }
   }
 
-  // ฟังก์ชัน _handleDetectionResult
+  void _printDetectionInfo() {
+    if (_detectionResult == null) {
+      print("_detectionResult เป็น null");
+      return;
+    }
+    
+    print("========== ข้อมูล Detection ==========");
+    print("จำนวนวัตถุที่ตรวจพบ: ${_detectionResult!.objects?.length ?? 0}");
+    
+    if (_detectionResult!.originalImageSize != null) {
+      print("ขนาดภาพต้นฉบับ: ${_detectionResult!.originalImageSize!.width}x${_detectionResult!.originalImageSize!.height}");
+    } else {
+      print("ไม่มีข้อมูลขนาดภาพต้นฉบับ");
+    }
+    
+    if (_detectionResult!.objects != null) {
+      for (var i = 0; i < _detectionResult!.objects!.length; i++) {
+        final obj = _detectionResult!.objects![i];
+        print("วัตถุที่ ${i+1}: ${obj.className} (ClassID: ${obj.classId})");
+        print("  พิกัด: (${obj.x1.toInt()}, ${obj.y1.toInt()}) - (${obj.x2.toInt()}, ${obj.y2.toInt()})");
+        print("  ความเชื่อมั่น: ${(obj.confidence * 100).toStringAsFixed(1)}%");
+        
+        // คำนวณความยาวเส้น
+        double length = math.sqrt(math.pow(obj.x2 - obj.x1, 2) + math.pow(obj.y2 - obj.y1, 2));
+        print("  ความยาวเส้น: ${length.toStringAsFixed(1)} พิกเซล");
+      }
+    }
+    print("======================================");
+  }
+
   Future<void> _handleDetectionResult(MeasurementResult result) async {
     if (!mounted) return;
     
@@ -292,7 +437,15 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     if (result.success) {
       // กรณีการตรวจจับและวิเคราะห์สำเร็จ
       print('การวิเคราะห์สำเร็จ: น้ำหนัก = ${result.adjustedWeight ?? 0.0} กก.');
+
+      setState(() {
+        // เก็บผลการตรวจจับเพื่อแสดงภาพ
+        _detectionResult = result.detectionResult;
+      });
       
+      // ปรับพิกัดให้ถูกต้องตามขนาดภาพต้นฉบับก่อนที่จะใช้
+      await _fixCoordinatesForModelDetection();
+
       // เก็บข้อมูลที่วิเคราะห์ได้
       setState(() {
         _estimatedWeight = result.adjustedWeight ?? 0.0;
@@ -301,9 +454,6 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         _confidenceValue = result.confidence ?? 0.8;
         _hasResult = true;
         _isManualMeasurement = false; // เป็นการวัดโดยอัตโนมัติ
-        
-        // เก็บผลการตรวจจับเพื่อแสดงภาพ
-        _detectionResult = result.detectionResult;
       });
       
       // เลือกเฉพาะวัตถุที่มีความเชื่อมั่นสูงสุดสำหรับแต่ละประเภท
@@ -330,17 +480,27 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                 'ความเชื่อมั่น ${(obj.confidence * 100).toStringAsFixed(1)}%');
         });
         
-        // สร้าง DetectionResult ใหม่ที่มีเฉพาะวัตถุที่ดีที่สุด
-        var updatedDetectionResult = detector.DetectionResult(
-          success: true,
-          objects: bestObjects.values.toList(),
-          resizedImagePath: result.detectionResult!.resizedImagePath,
-        );
+        // ตรวจสอบว่ามีวัตถุครบทั้ง 3 ประเภทหรือไม่
+        bool hasAllObjects = bestObjects.containsKey(0) && // ความยาวลำตัว (Body Length)
+                          bestObjects.containsKey(1) && // รอบอก (Heart Girth)
+                          bestObjects.containsKey(2);  // จุดอ้างอิง (Yellow Mark)
         
-        // อัปเดตผลการตรวจจับ
-        setState(() {
-          _detectionResult = updatedDetectionResult;
-        });
+        if (hasAllObjects) {
+          // สร้าง DetectionResult ใหม่ที่มีเฉพาะวัตถุที่ดีที่สุด
+          var updatedDetectionResult = detector.DetectionResult(
+            success: true,
+            objects: bestObjects.values.toList(),
+            resizedImagePath: result.detectionResult!.resizedImagePath,
+            originalImageSize: result.detectionResult!.originalImageSize,
+          );
+          
+          // อัปเดตผลการตรวจจับ
+          setState(() {
+            _detectionResult = updatedDetectionResult;
+          });
+        } else {
+          print('ไม่มีวัตถุครบทั้ง 3 ประเภท: ความยาวลำตัว=${bestObjects.containsKey(0)}, รอบอก=${bestObjects.containsKey(1)}, จุดอ้างอิง=${bestObjects.containsKey(2)}');
+        }
       }
       
       // บันทึกภาพที่มีการวิเคราะห์แล้ว
@@ -377,7 +537,6 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         
         // ตรวจสอบว่าพบวัตถุประเภทใดบ้าง
         for (var obj in result.detectionResult!.objects!) {
-          // แก้ไขตรงนี้: แก้ class id ให้ถูกต้องตามที่กำหนด
           if (obj.classId == 2) hasYellowMark = true;     // จุดอ้างอิง
           else if (obj.classId == 1) hasHeartGirth = true; // รอบอก
           else if (obj.classId == 0) hasBodyLength = true; // ความยาวลำตัว
@@ -406,12 +565,16 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
           success: true,
           objects: bestObjects.values.toList(),
           resizedImagePath: result.detectionResult!.resizedImagePath,
+          originalImageSize: result.detectionResult!.originalImageSize,
         );
         
         // อัปเดตผลการตรวจจับ
         setState(() {
           _detectionResult = updatedDetectionResult;
         });
+        
+        // ปรับพิกัดให้ถูกต้องตามขนาดภาพต้นฉบับก่อนที่จะใช้
+        await _fixCoordinatesForModelDetection();
         
         // พยายามบันทึกภาพวิเคราะห์
         try {
@@ -488,9 +651,9 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
   // ฟังก์ชันช่วยสำหรับแปลง classId เป็นชื่อคลาส
   String _getClassNameById(int classId) {
     switch (classId) {
-      case 0: return 'จุดอ้างอิง';   // Yellow Mark
-      case 1: return 'รอบอก';       // Heart Girth
-      case 2: return 'ความยาวลำตัว'; // Body Length
+      case 0: return 'ความยาวลำตัว';   // Body Length
+      case 1: return 'รอบอก';          // Heart Girth
+      case 2: return 'จุดอ้างอิง';      // Yellow Mark
       default: return 'Unknown_$classId';
     }
   }
@@ -506,9 +669,9 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     bool hasBodyLength = false;
     
     for (var obj in _detectionResult!.objects!) {
-      if (obj.classId == 0) hasYellowMark = true;
+      if (obj.classId == 2) hasYellowMark = true;
       if (obj.classId == 1) hasHeartGirth = true;
-      if (obj.classId == 2) hasBodyLength = true;
+      if (obj.classId == 0) hasBodyLength = true;
     }
     
     return Container(
@@ -2173,56 +2336,9 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          // 1. แสดงรูปต้นฉบับหรือรูปที่วิเคราะห์แล้ว
-                          if (_hasResult && _analyzedImageFile != null)
-                            // กรณีมีผลลัพธ์แล้วและมีไฟล์วิเคราะห์แล้ว ให้แสดงไฟล์วิเคราะห์
-                            Image.file(
-                              _analyzedImageFile!,
-                              fit: BoxFit.contain,
-                            )
-                          else if (_imageFile != null)
-                            // กรณีมีรูปต้นฉบับแต่ยังไม่มีไฟล์วิเคราะห์ ให้แสดงรูปต้นฉบับ
-                            Image.file(
-                              _imageFile!,
-                              fit: BoxFit.contain,
-                            )
-                          else
-                            // กรณีไม่มีรูปเลย ให้แสดงไอคอนกล้อง
-                            Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.camera_alt,
-                                    size: 64,
-                                    color: Colors.grey[400],
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    'ไม่มีภาพ',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            
-                          // 2. วาดกรอบและเส้นการตรวจจับทับบนภาพ (เฉพาะเมื่อมีการตรวจจับและมีรูปภาพ)
-                          if (_imageFile != null && _detectionResult != null && 
-                              _detectionResult!.objects != null && 
-                              _detectionResult!.objects!.isNotEmpty && 
-                              !_hasResult) // แสดงเฉพาะกรณียังไม่มีผลวิเคราะห์สมบูรณ์
-                            Positioned.fill(
-                              child: CustomPaint(
-                                painter: EnhancedMeasurementPainter(
-                                  _detectionResult!.objects!,
-                                  originalImageSize: Size(_imageFile!.lengthSync().toDouble(), _imageFile!.lengthSync().toDouble()),
-                                ),
-                              ),
-                            ),
-                            
+                          // เรียกใช้ฟังก์ชันที่สร้างไว้
+                          _buildAnalyzedImageView(),
+                          
                           // 3. แสดงสถานะการประมวลผล
                           if (_isProcessing)
                             Container(
@@ -2355,46 +2471,110 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
   // เพิ่มตัวแปรเก็บรูปภาพที่วิเคราะห์แล้ว
   Widget _buildAnalyzedImageView() {
     if (_hasResult && _analyzedImageFile != null) {
-      return Image.file(
-        _analyzedImageFile!,
-        fit: BoxFit.contain,
+      // กรณีมีภาพวิเคราะห์แล้ว ใช้ aspect ratio ที่ถูกต้อง
+      return AspectRatio(
+        aspectRatio: 4/3, // กำหนด aspect ratio ที่คงที่ เช่น 4:3 หรือ 16:9
+        child: Image.file(
+          _analyzedImageFile!,
+          fit: BoxFit.contain, // ใช้ contain เพื่อรักษาอัตราส่วน
+        ),
       );
     } else if (_imageFile != null && _detectionResult != null && 
               _detectionResult!.objects != null && 
               _detectionResult!.objects!.isNotEmpty) {
-      // เมื่อมีการตรวจจับวัตถุแล้วแต่ยังไม่มีการวิเคราะห์สำเร็จ
-      // แสดงภาพพร้อมวาดกรอบหรือเส้นบนภาพ
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          // แสดงรูปต้นฉบับ
-          Image.file(
-            _imageFile!,
-            fit: BoxFit.contain,
-          ),
+      // กรณีมีการตรวจจับแต่ยังไม่มีภาพวิเคราะห์
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          // กำหนดอัตราส่วนของภาพที่แน่นอน
+          double aspectRatio = 4/3; // หรือค่าอื่นที่เหมาะสมกับรูปภาพของคุณ
           
-          // วาดกรอบหรือเส้นบนภาพ
-          CustomPaint(
-            painter: EnhancedMeasurementPainter(
-              _detectionResult!.objects ?? [],
-              originalImageSize: _imageFile != null ? 
-                Size(
-                  _imageFile!.readAsBytesSync().lengthInBytes.toDouble(),
-                  _imageFile!.readAsBytesSync().lengthInBytes.toDouble()
-                ) : null,
+          double width = constraints.maxWidth;
+          double height = width / aspectRatio;
+          
+          // ถ้าความสูงเกินพื้นที่ที่มี ปรับความกว้างให้พอดี
+          if (height > constraints.maxHeight) {
+            height = constraints.maxHeight;
+            width = height * aspectRatio;
+          }
+          
+          return Container(
+            width: width,
+            height: height,
+            child: Stack(
+              fit: StackFit.loose,
+              children: [
+                // แสดงรูปต้นฉบับ
+                Image.file(
+                  _imageFile!,
+                  width: width,
+                  height: height,
+                  fit: BoxFit.contain,
+                ),
+                
+                // ใช้ FutureBuilder เพื่อรอการโหลดขนาดภาพจริง
+                FutureBuilder<ui.Image>(
+                  future: _getImageInfo(_imageFile!),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.done && 
+                        snapshot.hasData) {
+                      
+                      // คำนวณขนาดและตำแหน่งของภาพที่แสดง
+                      final imageRatio = snapshot.data!.width / snapshot.data!.height;
+                      
+                      double imageWidth, imageHeight;
+                      Offset offset;
+                      
+                      if (imageRatio > aspectRatio) {
+                        // ภาพกว้างกว่า ให้ fit ความกว้าง
+                        imageWidth = width;
+                        imageHeight = width / imageRatio;
+                        offset = Offset(0, (height - imageHeight) / 2);
+                      } else {
+                        // ภาพสูงกว่า ให้ fit ความสูง
+                        imageHeight = height;
+                        imageWidth = height * imageRatio;
+                        offset = Offset((width - imageWidth) / 2, 0);
+                      }
+                      
+                      final imageRect = Rect.fromLTWH(
+                        offset.dx,
+                        offset.dy,
+                        imageWidth,
+                        imageHeight
+                      );
+                      
+                      // วาด bounding boxes ทับบนภาพ
+                      return CustomPaint(
+                        painter: DetectionBoxPainter(
+                          objects: _detectionResult!.objects!,
+                          originalImageSize: Size(
+                            snapshot.data!.width.toDouble(),
+                            snapshot.data!.height.toDouble(),
+                          ),
+                          imageRect: imageRect,
+                        ),
+                        size: Size(width, height),
+                      );
+                    }
+                    return SizedBox();
+                  },
+                ),
+              ],
             ),
-            size: Size.infinite,
-          ),
-        ],
+          );
+        },
       );
     } else if (_imageFile != null) {
       // กรณีมีรูปภาพแต่ยังไม่มีผลการตรวจจับ
-      return Image.file(
-        _imageFile!,
-        fit: BoxFit.contain,
+      return AspectRatio(
+        aspectRatio: 4/3, // กำหนด aspect ratio ที่คงที่
+        child: Image.file(
+          _imageFile!,
+          fit: BoxFit.contain,
+        ),
       );
     } else {
-      // กรณีไม่มีรูปภาพ
+      // กรณีไม่มีรูปภาพ (โค้ดเดิม)
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2416,6 +2596,16 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         ),
       );
     }
+  }
+
+  // 3. เพิ่มฟังก์ชันสำหรับดึงข้อมูลขนาดภาพจริง
+  Future<ui.Image> _getImageInfo(File imageFile) async {
+    final data = await imageFile.readAsBytes();
+    final Completer<ui.Image> completer = Completer();
+    ui.decodeImageFromList(data, (ui.Image img) {
+      completer.complete(img);
+    });
+    return completer.future;
   }
 
   // วิดเจ็ตสำหรับแสดงภาพพร้อมการไฮไลท์การวัด
@@ -2625,6 +2815,232 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         ),
       ),
     );
+  }
+}
+
+// painter สำหรับวาด bounding boxes
+class DetectionBoxPainter extends CustomPainter {
+  final List<detector.DetectedObject> objects;
+  final Size originalImageSize;
+  final Rect imageRect;
+  
+  DetectionBoxPainter({
+    required this.objects,
+    required this.originalImageSize,
+    required this.imageRect,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (objects.isEmpty) return;
+    
+    // กำหนดสไตล์สำหรับกรอบและเส้น
+    final Map<int, Paint> paints = {
+      0: Paint() // ความยาวลำตัว (Body Length)
+        ..color = Colors.blue
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+      1: Paint() // รอบอก (Heart Girth)
+        ..color = Colors.red
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+      2: Paint() // จุดอ้างอิง (Yellow Mark)
+        ..color = Colors.amber
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    };
+
+    // คำนวณอัตราส่วนปรับขนาด
+    // ต้องคำนึงถึงการรักษาอัตราส่วนภาพด้วย (aspect ratio)
+    final double scaleX = imageRect.width / originalImageSize.width;
+    final double scaleY = imageRect.height / originalImageSize.height;
+    
+    // เก็บข้อมูล bounding box ของแต่ละประเภท
+    Map<int, Rect> boundingBoxes = {};
+    
+    // วาด bounding box และป้ายกำกับสำหรับแต่ละวัตถุ
+    for (var object in objects) {
+      // เลือกสีตามประเภท
+      final paint = paints[object.classId] ?? 
+        (Paint()..color = Colors.grey..style = PaintingStyle.stroke..strokeWidth = 2);
+      
+      // แปลงพิกัดจากพิกัดเดิมเป็นพิกัดบนภาพที่ถูกปรับขนาด
+      if (object.boundingBox != null) {
+        final rect = Rect.fromLTRB(
+          imageRect.left + object.boundingBox!.left * scaleX,
+          imageRect.top + object.boundingBox!.top * scaleY,
+          imageRect.left + object.boundingBox!.right * scaleX,
+          imageRect.top + object.boundingBox!.bottom * scaleY,
+        );
+        
+        // เก็บข้อมูล bounding box
+        boundingBoxes[object.classId] = rect;
+        
+        // วาดกรอบ
+        canvas.drawRect(rect, paint);
+        
+        // วาดป้ายกำกับ
+        final String label = _getLabelByClassId(object.classId);
+        final String confidence = '${(object.confidence * 100).toStringAsFixed(0)}%';
+        final String text = '$label $confidence';
+        
+        // กำหนดรูปแบบข้อความ
+        final TextSpan span = TextSpan(
+          text: text,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            shadows: [
+              Shadow(offset: Offset(1, 1), blurRadius: 1, color: Colors.black),
+            ],
+          ),
+        );
+        
+        final TextPainter tp = TextPainter(
+          text: span,
+          textDirection: ui.TextDirection.ltr,
+        );
+        tp.layout();
+        
+        // วาดพื้นหลังรองรับข้อความ
+        final Rect textRect = Rect.fromLTWH(
+          rect.left, 
+          rect.top - tp.height - 4, 
+          tp.width + 8, 
+          tp.height + 4
+        );
+        
+        final RRect rRect = RRect.fromRectAndRadius(
+          textRect, 
+          Radius.circular(4)
+        );
+        
+        canvas.drawRRect(
+          rRect, 
+          Paint()..color = paint.color.withOpacity(0.7)
+        );
+        
+        // วาดข้อความ
+        tp.paint(canvas, Offset(rect.left + 4, rect.top - tp.height - 2));
+      }
+    }
+    
+    // สร้างและวาดเส้นหลังจากที่มีข้อมูล bounding box ทั้งหมดแล้ว
+    for (var object in objects) {
+      final linePaint = Paint()
+        ..color = paints[object.classId]?.color ?? Colors.grey
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3;
+
+      // คำนวณตำแหน่งจริงของเส้น
+      double x1 = imageRect.left + object.x1 * scaleX;
+      double y1 = imageRect.top + object.y1 * scaleY;
+      double x2 = imageRect.left + object.x2 * scaleX;
+      double y2 = imageRect.top + object.y2 * scaleY;
+      
+      // ปรับแนวของเส้นตามประเภท
+      if (object.classId == 0) { // ความยาวลำตัว - ควรเป็นเส้นแนวนอนหรือเฉียงเล็กน้อย
+        // ไม่ต้องปรับเพิ่มเติม - ใช้ตำแหน่งจริงจากการ detect
+      } else if (object.classId == 1) { // รอบอก - ควรเป็นเส้นแนวตั้ง
+        // ไม่ต้องปรับเพิ่มเติม - ใช้ตำแหน่งจริงจากการ detect
+      }
+      
+      // วาดเส้น
+      canvas.drawLine(
+        Offset(x1, y1),
+        Offset(x2, y2),
+        linePaint,
+      );
+      
+      // วาดจุดที่ปลายทั้งสองข้าง
+      canvas.drawCircle(
+        Offset(x1, y1),
+        5,
+        Paint()..color = linePaint.color,
+      );
+      
+      canvas.drawCircle(
+        Offset(x2, y2),
+        5,
+        Paint()..color = linePaint.color,
+      );
+      
+      // วาดป้ายแสดงความยาวตรงกลางเส้น
+      _drawLengthLabel(
+        canvas, 
+        (x1 + x2) / 2, 
+        (y1 + y2) / 2,
+        _calculateLength(object.x1, object.y1, object.x2, object.y2, originalImageSize),
+        object.classId,
+        linePaint.color
+      );
+    }
+  }
+  
+  // คำนวณความยาวจริงของเส้น (ในหน่วยพิกเซลของภาพต้นฉบับ)
+  double _calculateLength(double x1, double y1, double x2, double y2, Size originalSize) {
+    // คำนวณความยาวในหน่วยพิกเซลบนภาพต้นฉบับ
+    double pixelLength = math.sqrt(math.pow(x2 - x1, 2) + math.pow(y2 - y1, 2));
+    return pixelLength;
+  }
+  
+  // วาดป้ายแสดงความยาว
+  void _drawLengthLabel(Canvas canvas, double x, double y, double length, int classId, Color color) {
+    final String text = '${length.toStringAsFixed(0)} px';
+    
+    final TextSpan span = TextSpan(
+      text: text,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+        shadows: [
+          Shadow(offset: Offset(1, 1), blurRadius: 1, color: Colors.black),
+        ],
+      ),
+    );
+    
+    final TextPainter tp = TextPainter(
+      text: span,
+      textDirection: ui.TextDirection.ltr,
+    );
+    tp.layout();
+    
+    // วาดพื้นหลังรองรับข้อความ
+    final Rect textRect = Rect.fromLTWH(
+      x - tp.width / 2 - 4, 
+      y - tp.height / 2 - 2, 
+      tp.width + 8, 
+      tp.height + 4
+    );
+    
+    final RRect rRect = RRect.fromRectAndRadius(
+      textRect, 
+      Radius.circular(4)
+    );
+    
+    canvas.drawRRect(
+      rRect, 
+      Paint()..color = color.withOpacity(0.7)
+    );
+    
+    // วาดข้อความ
+    tp.paint(canvas, Offset(x - tp.width / 2, y - tp.height / 2));
+  }
+  
+  String _getLabelByClassId(int classId) {
+    switch (classId) {
+      case 0: return 'ความยาวลำตัว';
+      case 1: return 'รอบอก';
+      case 2: return 'จุดอ้างอิง';
+      default: return 'ไม่ทราบประเภท';
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true; // ให้วาดใหม่ทุกครั้งที่มีการเปลี่ยนแปลง
   }
 }
 

@@ -382,7 +382,7 @@ class CattleMeasurementService {
     return confidence;
   }
   
-  // เพิ่มเมธอด saveAnalyzedImage เพื่อบันทึกภาพที่มีการวิเคราะห์แล้ว
+  // เมธอด saveAnalyzedImage เพื่อบันทึกภาพที่มีการวิเคราะห์แล้ว
   Future<File?> saveAnalyzedImage(
     File originalImage,
     DetectionResult detectionResult,
@@ -405,47 +405,140 @@ class CattleMeasurementService {
       // สร้างภาพใหม่โดยวาดกรอบและป้ายกำกับ
       final analyzedImage = img.copyResize(image, width: image.width, height: image.height);
       
-      // วาดกรอบและป้ายกำกับลงบนภาพ
-      for (var object in detectionResult.objects!) {
-        // กำหนดสีตามประเภทของวัตถุ
-        img.Color color;
-        if (object.classId == 0) { // Body Length (ความยาวลำตัว)
-          color = img.ColorRgb8(0, 0, 255); // น้ำเงิน
-        } else if (object.classId == 1) { // Heart Girth (รอบอก)
-          color = img.ColorRgb8(255, 0, 0); // แดง
-        } else if (object.classId == 2) { // Yellow Mark (จุดอ้างอิง)
-          color = img.ColorRgb8(255, 255, 0); // เหลือง
-        } else {
-          color = img.ColorRgb8(128, 128, 128); // เทา
+      // ขนาดภาพต้นฉบับที่ใช้ในการวาด
+      double originalWidth = image.width.toDouble();
+      double originalHeight = image.height.toDouble();
+      
+      // ใช้ขนาดจาก detectionResult ถ้ามี
+      if (detectionResult.originalImageSize != null) {
+        // คำนวณอัตราส่วนปรับขนาด
+        double scaleX = originalWidth / detectionResult.originalImageSize!.width;
+        double scaleY = originalHeight / detectionResult.originalImageSize!.height;
+        
+        // วาดกรอบและป้ายกำกับลงบนภาพ
+        for (var object in detectionResult.objects!) {
+          // กำหนดสีตามประเภทของวัตถุ
+          img.Color color;
+          if (object.classId == 0) { // Body Length (ความยาวลำตัว)
+            color = img.ColorRgb8(0, 0, 255); // น้ำเงิน
+          } else if (object.classId == 1) { // Heart Girth (รอบอก)
+            color = img.ColorRgb8(255, 0, 0); // แดง
+          } else if (object.classId == 2) { // Yellow Mark (จุดอ้างอิง)
+            color = img.ColorRgb8(255, 255, 0); // เหลือง
+          } else {
+            color = img.ColorRgb8(128, 128, 128); // เทา
+          }
+          
+          // ปรับพิกัดตามอัตราส่วนภาพ
+          double x1 = object.x1 * scaleX;
+          double y1 = object.y1 * scaleY;
+          double x2 = object.x2 * scaleX;
+          double y2 = object.y2 * scaleY;
+          
+          // วาดเส้นระหว่างจุดเริ่มต้นและจุดสิ้นสุด
+          img.drawLine(
+            analyzedImage,
+            x1: x1.toInt(),
+            y1: y1.toInt(),
+            x2: x2.toInt(),
+            y2: y2.toInt(),
+            color: color,
+            thickness: 3,
+          );
+          
+          // วาดจุดที่ปลายทั้งสองของเส้น
+          img.fillCircle(
+            analyzedImage,
+            x: x1.toInt(),
+            y: y1.toInt(),
+            radius: 5,
+            color: color,
+          );
+          
+          img.fillCircle(
+            analyzedImage,
+            x: x2.toInt(),
+            y: y2.toInt(),
+            radius: 5,
+            color: color,
+          );
+          
+          // วาด bounding box ถ้ามี
+          if (object.boundingBox != null) {
+            double left = object.boundingBox!.left * scaleX;
+            double top = object.boundingBox!.top * scaleY;
+            double right = object.boundingBox!.right * scaleX;
+            double bottom = object.boundingBox!.bottom * scaleY;
+            
+            // วาดกรอบสี่เหลี่ยม
+            img.drawRect(
+              analyzedImage,
+              x1: left.toInt(),
+              y1: top.toInt(),
+              x2: right.toInt(),
+              y2: bottom.toInt(),
+              color: color,
+              thickness: 2,
+            );
+          }
         }
-        
-        // วาดเส้นระหว่างจุดเริ่มต้นและจุดสิ้นสุด
-        img.drawLine(
-          analyzedImage,
-          x1: object.x1.toInt(),
-          y1: object.y1.toInt(),
-          x2: object.x2.toInt(),
-          y2: object.y2.toInt(),
-          color: color,
-          thickness: 3,
-        );
-        
-        // วาดจุดที่ปลายทั้งสองของเส้น
-        img.fillCircle(
-          analyzedImage,
-          x: object.x1.toInt(),
-          y: object.y1.toInt(),
-          radius: 5,
-          color: color,
-        );
-        
-        img.fillCircle(
-          analyzedImage,
-          x: object.x2.toInt(),
-          y: object.y2.toInt(),
-          radius: 5,
-          color: color,
-        );
+      } else {
+        // กรณีไม่มีข้อมูลขนาดภาพดั้งเดิม ใช้พิกัดจาก object โดยตรง
+        for (var object in detectionResult.objects!) {
+          // กำหนดสีตามประเภทของวัตถุ
+          img.Color color;
+          if (object.classId == 0) { // Body Length (ความยาวลำตัว)
+            color = img.ColorRgb8(0, 0, 255); // น้ำเงิน
+          } else if (object.classId == 1) { // Heart Girth (รอบอก)
+            color = img.ColorRgb8(255, 0, 0); // แดง
+          } else if (object.classId == 2) { // Yellow Mark (จุดอ้างอิง)
+            color = img.ColorRgb8(255, 255, 0); // เหลือง
+          } else {
+            color = img.ColorRgb8(128, 128, 128); // เทา
+          }
+          
+          // วาดเส้นระหว่างจุดเริ่มต้นและจุดสิ้นสุด
+          img.drawLine(
+            analyzedImage,
+            x1: object.x1.toInt(),
+            y1: object.y1.toInt(),
+            x2: object.x2.toInt(),
+            y2: object.y2.toInt(),
+            color: color,
+            thickness: 3,
+          );
+          
+          // วาดจุดที่ปลายทั้งสองของเส้น
+          img.fillCircle(
+            analyzedImage,
+            x: object.x1.toInt(),
+            y: object.y1.toInt(),
+            radius: 5,
+            color: color,
+          );
+          
+          img.fillCircle(
+            analyzedImage,
+            x: object.x2.toInt(),
+            y: object.y2.toInt(),
+            radius: 5,
+            color: color,
+          );
+          
+          // วาด bounding box ถ้ามี
+          if (object.boundingBox != null) {
+            // วาดกรอบสี่เหลี่ยม
+            img.drawRect(
+              analyzedImage,
+              x1: object.boundingBox!.left.toInt(),
+              y1: object.boundingBox!.top.toInt(),
+              x2: object.boundingBox!.right.toInt(),
+              y2: object.boundingBox!.bottom.toInt(),
+              color: color,
+              thickness: 2,
+            );
+          }
+        }
       }
       
       // บันทึกภาพลงไฟล์ใหม่

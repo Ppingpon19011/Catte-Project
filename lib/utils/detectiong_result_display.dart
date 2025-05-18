@@ -21,9 +21,9 @@ class DetectionResultDisplay extends StatelessWidget {
     
     if (detectionResult.objects != null) {
       for (var obj in detectionResult.objects!) {
-        if (obj.classId == 0) hasYellowMark = true;
+        if (obj.classId == 2) hasYellowMark = true;
         else if (obj.classId == 1) hasHeartGirth = true;
-        else if (obj.classId == 2) hasBodyLength = true;
+        else if (obj.classId == 0) hasBodyLength = true;
       }
     }
     
@@ -113,11 +113,11 @@ class DetectionResultDisplay extends StatelessWidget {
     // หาค่าความเชื่อมั่นของวัตถุตามชนิด
     int classId = -1;
     if (label.contains("จุดอ้างอิง") || label.contains("Yellow Mark")) {
-      classId = 0;
+      classId = 2;
     } else if (label.contains("รอบอก") || label.contains("Heart Girth")) {
       classId = 1;
     } else if (label.contains("ความยาวลำตัว") || label.contains("Body Length")) {
-      classId = 2;
+      classId = 0;
     }
     
     if (classId == -1 || detectionResult.objects == null) return Container();
