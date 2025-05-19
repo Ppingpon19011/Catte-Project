@@ -443,12 +443,12 @@ class CattleDetector {
       
       print('กำลัง resize รูปภาพจาก ${image.width}x${image.height} เป็น ${newWidth}x${newHeight}');
       
-      // Resize รูปภาพ
+      // Resize รูปภาพด้วยวิธีที่ง่ายและมีความเสถียร
       final resizedImage = img.copyResize(
         image,
         width: newWidth,
         height: newHeight,
-        interpolation: img.Interpolation.linear
+        interpolation: img.Interpolation.nearest // ใช้ nearest เพื่อความเสถียรมากที่สุด
       );
       
       // บันทึกรูปภาพใหม่
@@ -457,50 +457,33 @@ class CattleDetector {
       
       // บันทึกในรูปแบบ JPEG ด้วยคุณภาพสูง
       final resizedFile = File(resizedFilePath);
-      await resizedFile.writeAsBytes(img.encodeJpg(resizedImage, quality: 95));
+      await resizedFile.writeAsBytes(img.encodeJpg(resizedImage, quality: 90));
       
       print('บันทึกรูปภาพที่ resize แล้วที่: $resizedFilePath');
       return resizedFile;
     } catch (e) {
       print('เกิดข้อผิดพลาดในการ resize รูปภาพ: $e');
-      return imageFile; // กรณีเกิดข้อผิดพลาดให้ใช้ไฟล์เดิม
+      
+      // ในกรณีที่เกิดข้อผิดพลาด ลองใช้วิธีการคัดลอกไฟล์แบบง่ายๆ
+      try {
+        final directory = await getTemporaryDirectory();
+        final copiedFilePath = '${directory.path}/copy_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final copiedFile = await imageFile.copy(copiedFilePath);
+        print('ไม่สามารถ resize ได้ ใช้วิธีคัดลอกไฟล์แทน: $copiedFilePath');
+        return copiedFile;
+      } catch (copyError) {
+        print('การคัดลอกไฟล์ล้มเหลว: $copyError');
+        return imageFile; // กรณีเกิดข้อผิดพลาดใดๆ ให้ใช้ไฟล์เดิม
+      }
     }
   }
+
   /// ปรับปรุงคุณภาพรูปภาพสำหรับการตรวจจับ 
-  Future<img.Image> _enhanceImageForDetection(img.Image originalImage) async {
-    try {
-      print('กำลังปรับปรุงรูปภาพสำหรับการตรวจจับ...');
-      
-      // ปรับความสว่างและคอนทราสต์
-      img.Image enhancedImage = img.copyResize(originalImage);
-      enhancedImage = img.adjustColor(
-        enhancedImage,
-        contrast: 1.2,    // เพิ่มคอนทราสต์เล็กน้อย
-        brightness: 0.05, // เพิ่มความสว่างเล็กน้อย
-        saturation: 1.1,  // เพิ่มความอิ่มตัวของสีเล็กน้อย
-        exposure: 0.05,   // เพิ่มการเปิดรับแสงเล็กน้อย
-      );
-      
-      // ทำ Noise reduction เพื่อลดสัญญาณรบกวน
-      enhancedImage = img.gaussianBlur(enhancedImage, radius: 1);
-      
-      // ปรับปรุงขอบภาพ
-      enhancedImage = img.adjustColor(
-        enhancedImage,
-        contrast: 1.1,     // เพิ่มคอนทราสต์อีกเล็กน้อย
-        saturation: 1.05,  // เพิ่มความอิ่มตัวของสีอีกเล็กน้อย
-      );
-      
-      // บันทึกรูปที่ปรับปรุงแล้วเพื่อตรวจสอบ (ถ้าต้องการ)
-      await _saveDebugImage(enhancedImage, 'enhanced');
-      
-      print('ปรับปรุงรูปภาพสำเร็จ');
-      return enhancedImage;
-    } catch (e) {
-      print('เกิดข้อผิดพลาดในการปรับปรุงรูปภาพ: $e');
-      return originalImage; // ในกรณีเกิดข้อผิดพลาด ให้ใช้รูปภาพเดิม
-    }
-  }
+  // Future<img.Image> _enhanceImageForDetection(img.Image originalImage) async {
+  //     print('ส่งคืนภาพต้นฉบับโดยไม่มีการปรับปรุง');
+  //     return originalImage; // ในกรณีเกิดข้อผิดพลาด ให้ใช้รูปภาพเดิม
+    
+  // }
 
   /// ตรวจจับโคจากไฟล์ภาพ และรายละเอียดวัตถุที่ตรวจพบ
   Future<DetectionResult> detectCattle(File imageFile) async {
@@ -529,14 +512,11 @@ class CattleDetector {
         );
       }
 
-      // เพิ่มการปรับแต่งภาพเพื่อเพิ่มประสิทธิภาพการตรวจจับ
-      final enhancedImage = await _enhanceImageForDetection(originalImage);
-      
-      print('ขนาดรูปภาพที่ใช้ในการตรวจจับ: ${enhancedImage.width}x${enhancedImage.height}');
+      print('ขนาดรูปภาพที่ใช้ในการตรวจจับ: ${originalImage.width}x${originalImage.height}');
 
       try {
         // แปลงรูปภาพเป็น tensor และบันทึกรูปที่ resize แล้ว
-        var result = await _prepareImageForInference(enhancedImage);
+        var result = await _prepareImageForInference(originalImage);
         var inputTensor = result['tensor'];
         var resizedImagePath = result['resizedImagePath'];
         
@@ -584,7 +564,7 @@ class CattleDetector {
                 success: false,
                 error: 'รูปแบบ output ไม่ตรงกับที่คาดหวัง: $outputShape',
                 resizedImagePath: resizedImagePath,
-                originalImageSize: Size(enhancedImage.width.toDouble(), enhancedImage.height.toDouble()),
+                originalImageSize: Size(originalImage.width.toDouble(), originalImage.height.toDouble()),
               );
             }
           }
@@ -594,7 +574,7 @@ class CattleDetector {
               success: false,
               error: 'รูปแบบ output ไม่รองรับ: $outputShape',
               resizedImagePath: resizedImagePath,
-              originalImageSize: Size(enhancedImage.width.toDouble(), enhancedImage.height.toDouble()),
+              originalImageSize: Size(originalImage.width.toDouble(), originalImage.height.toDouble()),
             );
           }
           
@@ -603,9 +583,6 @@ class CattleDetector {
           
           try {
             // ใช้ dynamic dispatch เพื่อรันโมเดลด้วย buffer
-            Map<String, dynamic> inputs = {'input': inputTensor};
-            
-            // แก้ไขเป็น Map<int, Object> ตามที่ต้องการ
             Map<int, Object> outputsObject = {};
             for (var key in outputs.keys) {
               outputsObject[key] = outputs[key] as Object;
@@ -620,8 +597,8 @@ class CattleDetector {
             // ประมวลผล output และดึงการตรวจจับ
             List<DetectedObject> detections = _processOutput(
               standardizedOutput, 
-              enhancedImage.width, 
-              enhancedImage.height, 
+              originalImage.width, 
+              originalImage.height, 
               confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD
             );
             
@@ -634,8 +611,8 @@ class CattleDetector {
               // ลองใช้ threshold ที่ต่ำลง
               detections = _processOutput(
                 standardizedOutput, 
-                enhancedImage.width, 
-                enhancedImage.height, 
+                originalImage.width, 
+                originalImage.height, 
                 confidenceThreshold: 0.01 // ใช้ค่าต่ำมาก
               );
               
@@ -644,8 +621,8 @@ class CattleDetector {
                 
                 // ถ้ายังไม่พบ ให้สร้างการตรวจจับแบบสำรอง
                 return DetectionResult.createFullDetection(
-                  enhancedImage.width, 
-                  enhancedImage.height
+                  originalImage.width, 
+                  originalImage.height
                 );
               }
             }
@@ -678,7 +655,7 @@ class CattleDetector {
                 success: false,
                 error: 'ไม่พบวัตถุที่ต้องการในภาพ',
                 resizedImagePath: resizedImagePath,
-                originalImageSize: Size(enhancedImage.width.toDouble(), enhancedImage.height.toDouble()),
+                originalImageSize: Size(originalImage.width.toDouble(), originalImage.height.toDouble()),
               );
             }
             
@@ -686,7 +663,7 @@ class CattleDetector {
               success: true,
               objects: bestObjects,
               resizedImagePath: resizedImagePath,
-              originalImageSize: Size(enhancedImage.width.toDouble(), enhancedImage.height.toDouble()),
+              originalImageSize: Size(originalImage.width.toDouble(), originalImage.height.toDouble()),
             );
           } catch (runError) {
             print('ไม่สามารถรัน inference ได้: $runError');
@@ -694,7 +671,7 @@ class CattleDetector {
               success: false,
               error: 'ไม่สามารถรัน inference ได้: $runError',
               resizedImagePath: resizedImagePath,
-              originalImageSize: Size(enhancedImage.width.toDouble(), enhancedImage.height.toDouble()),
+              originalImageSize: Size(originalImage.width.toDouble(), originalImage.height.toDouble()),
             );
           }
         } catch (e) {
@@ -703,7 +680,7 @@ class CattleDetector {
             success: false,
             error: 'เกิดข้อผิดพลาดในการประมวลผล output: $e',
             resizedImagePath: resizedImagePath,
-            originalImageSize: Size(enhancedImage.width.toDouble(), enhancedImage.height.toDouble()),
+            originalImageSize: Size(originalImage.width.toDouble(), originalImage.height.toDouble()),
           );
         }
       } catch (e) {
@@ -821,12 +798,12 @@ class CattleDetector {
       final int newWidth = (originalWidth * scale).round();
       final int newHeight = (originalHeight * scale).round();
       
-      // ปรับขนาดภาพตามสัดส่วนที่คำนวณไว้
+      // ปรับขนาดภาพตามสัดส่วนที่คำนวณไว้ ใช้ nearest เพื่อความเสถียร
       final img.Image scaledImage = img.copyResize(
         image,
         width: newWidth,
         height: newHeight,
-        interpolation: img.Interpolation.linear
+        interpolation: img.Interpolation.nearest
       );
       
       // 2. สร้างรูปภาพขนาด INPUT_SIZE x INPUT_SIZE พร้อมพื้นที่ว่างสีดำ
@@ -885,57 +862,57 @@ class CattleDetector {
   }
 
   /// ปรับรูปแบบ output ให้เป็นมาตรฐานสำหรับการประมวลผล
-List<List<double>> _standardizeOutput(Map<int, dynamic> outputs) {
-    try {
-      List<List<double>> standardOutput = [];
-      
-      // ตรวจสอบว่ามีข้อมูลหรือไม่
-      if (!outputs.containsKey(0)) {
-        print('ไม่พบข้อมูล output ใน key 0');
+  List<List<double>> _standardizeOutput(Map<int, dynamic> outputs) {
+      try {
+        List<List<double>> standardOutput = [];
+        
+        // ตรวจสอบว่ามีข้อมูลหรือไม่
+        if (!outputs.containsKey(0)) {
+          print('ไม่พบข้อมูล output ใน key 0');
+          return standardOutput;
+        }
+        
+        // ตรวจสอบรูปแบบของ output และแปลงให้อยู่ในรูปแบบเดียวกัน
+        var output = outputs[0];
+        
+        // กรณี output เป็น [1, rows, cols]
+        if (output is List && output.length == 1 && output[0] is List) {
+          print('กำลังแปลง output รูปแบบ [1, rows, cols]');
+          
+          List<List<dynamic>> rawOutput = output[0] as List<List<dynamic>>;
+          for (var row in rawOutput) {
+            List<double> doubleRow = [];
+            for (var val in row) {
+              doubleRow.add(val is num ? val.toDouble() : 0.0);
+            }
+            standardOutput.add(doubleRow);
+          }
+        }
+        // กรณี output เป็น [rows, cols]
+        else if (output is List && output.length > 0 && output[0] is List) {
+          print('กำลังแปลง output รูปแบบ [rows, cols]');
+          
+          List<List<dynamic>> rawOutput = output as List<List<dynamic>>;
+          for (var row in rawOutput) {
+            List<double> doubleRow = [];
+            for (var val in row) {
+              doubleRow.add(val is num ? val.toDouble() : 0.0);
+            }
+            standardOutput.add(doubleRow);
+          }
+        }
+        // กรณีอื่นๆ (มีโอกาสน้อย)
+        else {
+          print('รูปแบบ output ไม่ตรงกับที่คาดหวัง: ${output.runtimeType}');
+          // สร้าง output มาตรฐานที่ว่างเปล่า
+        }
+        
         return standardOutput;
+      } catch (e) {
+        print('เกิดข้อผิดพลาดในการแปลง output เป็นรูปแบบมาตรฐาน: $e');
+        return [];
       }
-      
-      // ตรวจสอบรูปแบบของ output และแปลงให้อยู่ในรูปแบบเดียวกัน
-      var output = outputs[0];
-      
-      // กรณี output เป็น [1, rows, cols]
-      if (output is List && output.length == 1 && output[0] is List) {
-        print('กำลังแปลง output รูปแบบ [1, rows, cols]');
-        
-        List<List<dynamic>> rawOutput = output[0] as List<List<dynamic>>;
-        for (var row in rawOutput) {
-          List<double> doubleRow = [];
-          for (var val in row) {
-            doubleRow.add(val is num ? val.toDouble() : 0.0);
-          }
-          standardOutput.add(doubleRow);
-        }
-      }
-      // กรณี output เป็น [rows, cols]
-      else if (output is List && output.length > 0 && output[0] is List) {
-        print('กำลังแปลง output รูปแบบ [rows, cols]');
-        
-        List<List<dynamic>> rawOutput = output as List<List<dynamic>>;
-        for (var row in rawOutput) {
-          List<double> doubleRow = [];
-          for (var val in row) {
-            doubleRow.add(val is num ? val.toDouble() : 0.0);
-          }
-          standardOutput.add(doubleRow);
-        }
-      }
-      // กรณีอื่นๆ (มีโอกาสน้อย)
-      else {
-        print('รูปแบบ output ไม่ตรงกับที่คาดหวัง: ${output.runtimeType}');
-        // สร้าง output มาตรฐานที่ว่างเปล่า
-      }
-      
-      return standardOutput;
-    } catch (e) {
-      print('เกิดข้อผิดพลาดในการแปลง output เป็นรูปแบบมาตรฐาน: $e');
-      return [];
     }
-  }
 
     void _fillCircle(img.Image image, int x, int y, int radius, img.Color color) {
       // วาดวงกลมที่มีจุดศูนย์กลางที่ (x, y) และรัศมี radius
