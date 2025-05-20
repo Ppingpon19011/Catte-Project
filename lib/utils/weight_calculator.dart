@@ -7,7 +7,7 @@ import 'package:image/image.dart' as img;
 
 class WeightCalculator {
   // ความยาวมาตรฐานของจุดอ้างอิง (เซนติเมตร)
-  static const double REFERENCE_MARK_LENGTH_CM = 100.0; // 1 เมตร
+  static const double REFERENCE_MARK_LENGTH_CM = 100; // 1 เมตร
   
   // สูตรคำนวณน้ำหนักโค (น้ำหนักเป็นปอนด์)
   // weight (pounds) = ((heart girth in inches)^2 * body length in inches) / 300
