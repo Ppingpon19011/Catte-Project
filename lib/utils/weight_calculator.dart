@@ -13,14 +13,20 @@ class WeightCalculator {
   // weight (pounds) = ((heart girth in inches)^2 * body length in inches) / 300
   static double calculateWeight(double heartGirthInches, double bodyLengthInches) {
     if (heartGirthInches <= 0 || bodyLengthInches <= 0) {
+      print("Error: ค่าการวัดไม่ถูกต้อง (heartGirth: $heartGirthInches, bodyLength: $bodyLengthInches)");
       return 0.0;
     }
     
-    // คำนวณตามสูตร
+    // คำนวณตามสูตร: weight (pounds) = ((heart girth in inches)^2 * body length in inches) / 300
     double weightInPounds = (pow(heartGirthInches, 2) * bodyLengthInches) / 300;
     
     // แปลงจากปอนด์เป็นกิโลกรัม
     double weightInKg = weightInPounds * 0.453592;
+    
+    print("ข้อมูลการคำนวณน้ำหนักจาก WeightCalculator:");
+    print("- รอบอก: $heartGirthInches นิ้ว");
+    print("- ความยาวลำตัว: $bodyLengthInches นิ้ว");
+    print("- น้ำหนัก: $weightInPounds ปอนด์ ($weightInKg กก.)");
     
     return weightInKg;
   }
@@ -70,13 +76,21 @@ class WeightCalculator {
   
   // คำนวณน้ำหนักจากขนาดของโค
   static Map<String, dynamic> calculateWeightFromMeasurements(
-    double heartGirthCm, 
+    double heartGirthCm,
     double bodyLengthCm, 
     String breed, 
     String gender, 
     int ageMonths
   ) {
     try {
+      // บันทึกค่าการวัดเพื่อตรวจสอบความถูกต้อง
+      print("ข้อมูลการคำนวณจาก WeightCalculator.calculateWeightFromMeasurements:");
+      print("- รอบอก: $heartGirthCm ซม.");
+      print("- ความยาวลำตัว: $bodyLengthCm ซม.");
+      print("- สายพันธุ์: $breed");
+      print("- เพศ: $gender");
+      print("- อายุ: $ageMonths เดือน");
+      
       // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว
       double heartGirthInches = cmToInches(heartGirthCm);
       double bodyLengthInches = cmToInches(bodyLengthCm);
@@ -84,8 +98,8 @@ class WeightCalculator {
       // คำนวณน้ำหนักด้วยสูตรหลัก
       double weightInKg = calculateWeight(heartGirthInches, bodyLengthInches);
       
-      // ปรับค่าตามเพศและอายุ
-      double adjustedWeight = adjustWeightByAgeAndGender(weightInKg, gender, ageMonths);
+      // บันทึกค่าน้ำหนักดิบที่คำนวณได้
+      print("- น้ำหนักดิบที่คำนวณได้: $weightInKg กก.");
       
       return {
         'success': true,
@@ -93,10 +107,11 @@ class WeightCalculator {
         'heartGirthInches': heartGirthInches,
         'bodyLengthCm': bodyLengthCm,
         'bodyLengthInches': bodyLengthInches,
-        'rawWeight': weightInKg,
-        'adjustedWeight': adjustedWeight,
+        'rawWeight': weightInKg, // ส่งค่าน้ำหนักดิบที่คำนวณจากสูตรโดยตรง
+        'adjustedWeight': adjustWeightByAgeAndGender(weightInKg, gender, ageMonths),
       };
     } catch (e) {
+      print("เกิดข้อผิดพลาดในการคำนวณน้ำหนัก: $e");
       return {
         'success': false,
         'error': e.toString(),
@@ -130,50 +145,35 @@ class WeightCalculator {
   static Future<Map<String, dynamic>> estimateFromImage(
       File imageFile, String breed, String gender, int ageMonths) async {
     try {
-      // อ่านข้อมูลภาพ
-      final imageBytes = await imageFile.readAsBytes();
-      final image = img.decodeImage(imageBytes);
+      print('เริ่มประมาณน้ำหนักจากภาพด้วย WeightCalculator.estimateFromImage');
       
-      if (image == null) {
-        return {
-          'success': false,
-          'error': 'ไม่สามารถอ่านรูปภาพได้',
-        };
-      }
+      // ค่าการวัดจำลอง (ในระบบจริงควรปรับให้เหมาะสม)
+      double baseHeartGirth = 180 + (Random().nextDouble() * 20 - 10);
+      double baseBodyLength = 150 + (Random().nextDouble() * 20 - 10);
+      double height = 130 + (Random().nextDouble() * 20 - 10);
       
-      // สร้าง Random เพื่อจำลองความแปรปรวน
-      final Random random = Random();
-      
-      // ข้อความแจ้งเตือนว่าค่านี้เป็นค่าสมมติ
-      print('หมายเหตุ: ค่านี้เป็นค่าจำลอง ควรใช้การวัดด้วยตนเองเพื่อความแม่นยำ');
-      
-      // จำลองการวัดรอบอก
-      double baseHeartGirth = 180 + (random.nextDouble() * 20 - 10);
-      
-      // จำลองการวัดความยาวลำตัว
-      double baseBodyLength = 150 + (random.nextDouble() * 20 - 10);
-      
-      // จำลองความสูง
-      double height = 130 + (random.nextDouble() * 20 - 10);
+      print("estimateFromImage - ค่าจำลอง:");
+      print("- รอบอก: $baseHeartGirth ซม.");
+      print("- ความยาวลำตัว: $baseBodyLength ซม.");
       
       // แปลงเป็นนิ้ว
       double heartGirthInches = cmToInches(baseHeartGirth);
       double bodyLengthInches = cmToInches(baseBodyLength);
       
-      // คำนวณน้ำหนัก
+      // คำนวณน้ำหนักด้วยสูตรหลัก (เป็นการคำนวณโดยตรงไม่ผ่านการปรับแต่ง)
       double weightInKg = calculateWeight(heartGirthInches, bodyLengthInches);
       
-      // ปรับค่าตามเพศและอายุ
-      double adjustedWeight = adjustWeightByAgeAndGender(weightInKg, gender, ageMonths);
+      print("estimateFromImage - น้ำหนักที่คำนวณได้: $weightInKg กก.");
       
+      // ส่งค่าที่ได้กลับไป
       return {
         'success': true,
         'heartGirth': baseHeartGirth,
         'bodyLength': baseBodyLength,
         'height': height,
-        'rawWeight': weightInKg,
-        'adjustedWeight': adjustedWeight,
-        'confidence': 0.6, // ค่าความเชื่อมั่นต่ำเนื่องจากเป็นค่าสมมติ
+        'rawWeight': weightInKg, // ส่งน้ำหนักดิบกลับไป
+        'adjustedWeight': adjustWeightByAgeAndGender(weightInKg, gender, ageMonths),
+        'confidence': 0.6,
         'message': 'ค่านี้เป็นค่าจำลอง ควรใช้การวัดด้วยตนเองเพื่อความแม่นยำ',
       };
     } catch (e) {

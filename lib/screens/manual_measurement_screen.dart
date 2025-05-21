@@ -1010,12 +1010,16 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
           backgroundColor: Colors.green,
         ),
       );
+
+      double heartGirthInches = WeightCalculator.cmToInches(_heartGirthCm);
+      double bodyLengthInches = WeightCalculator.cmToInches(_bodyLengthCm);
+      double weightInKg = WeightCalculator.calculateWeight(heartGirthInches, bodyLengthInches);
       
       // ส่งข้อมูลกลับไปยังหน้าก่อน
       Navigator.pop(context, {
         'success': true,
         'detection_result': detectionResult,
-        'estimated_weight': _estimatedWeight,
+        'raw_weight': weightInKg,
         'heart_girth_cm': _heartGirthCm,
         'body_length_cm': _bodyLengthCm,
         'record_id': recordId,
@@ -1053,13 +1057,17 @@ class _ManualMeasurementScreenState extends State<ManualMeasurementScreen> {
     // แสดง log เพื่อตรวจสอบค่า
     print('ส่งค่ากลับ: น้ำหนัก = $_estimatedWeight กก., รอบอก = $_heartGirthCm ซม., ความยาว = $_bodyLengthCm ซม.');
     
+    double heartGirthInches = WeightCalculator.cmToInches(_heartGirthCm);
+    double bodyLengthInches = WeightCalculator.cmToInches(_bodyLengthCm);
+    double weightInKg = WeightCalculator.calculateWeight(heartGirthInches, bodyLengthInches);
+
     // ส่งข้อมูลกลับอย่างครบถ้วน
     Navigator.pop(context, {
       'success': true,
       'detection_result': detectionResult,
       'body_length_cm': _bodyLengthCm,
       'heart_girth_cm': _heartGirthCm,
-      'estimated_weight': _estimatedWeight > 0 ? _estimatedWeight : 0.0,
+      'raw_weight': weightInKg,
       'confidence': 0.95, // ค่าความเชื่อมั่น
       'measured_date': _measuredDate,
       'is_manual': _isManualMeasurement,

@@ -210,9 +210,6 @@ class CattleMeasurementService {
         );
       }
       
-      // คำนวณขนาดจริงในหน่วยเซนติเมตร
-      double yellowMarkWidthCm = WeightCalculator.REFERENCE_MARK_LENGTH_CM; // ความยาวจุดอ้างอิงเป็น 100 ซม.
-      
       // คำนวณระยะห่างระหว่างจุดของจุดอ้างอิง
       double yellowMarkPixelLength = math.sqrt(
         math.pow(yellowMarkObj.x2 - yellowMarkObj.x1, 2) + 
@@ -220,7 +217,7 @@ class CattleMeasurementService {
       );
       
       // อัตราส่วนพิกเซลต่อเซนติเมตร (ใช้สำหรับแปลงหน่วย)
-      double pixelToCmRatio = yellowMarkPixelLength / yellowMarkWidthCm;
+      double pixelToCmRatio = yellowMarkPixelLength / 100;
       print('อัตราส่วนการแปลงหน่วย: $pixelToCmRatio พิกเซล/ซม.');
       
       // ตรวจสอบอัตราส่วนว่าสมเหตุสมผลหรือไม่
@@ -267,7 +264,7 @@ class CattleMeasurementService {
       print('- ความยาวลำตัว: ${bodyLengthPixels.toStringAsFixed(1)} พิกเซล');
       
       print('การวัดในหน่วยเซนติเมตร:');
-      print('- จุดอ้างอิง: ${yellowMarkWidthCm} ซม.');
+      print('- จุดอ้างอิง: 100 ซม.');
       print('- รอบอก (ความสูง): ${heartGirthCm.toStringAsFixed(1)} ซม.');
       print('- รอบอก (เส้นรอบวง): ${heartGirthCircumference.toStringAsFixed(1)} ซม.');
       print('- ความยาวลำตัว: ${bodyLengthCm.toStringAsFixed(1)} ซม.');
@@ -333,15 +330,24 @@ class CattleMeasurementService {
           bodyLength: bodyLengthCm,
         );
       }
+
+      // การส่งค่าข้อมูลการวัดไปให้ WeightCalculator คำนวณโดยตรง
+      Map<String, dynamic> weightResult = WeightCalculator.calculateWeightFromMeasurements(
+        heartGirthCircumference,  // ค่ารอบอก
+        bodyLengthCm,            // ค่าความยาวลำตัว
+        breed,                   // สายพันธุ์
+        gender,                  // เพศ
+        ageMonths                // อายุ
+      );
       
       // ถ้าทุกอย่างผ่านการตรวจสอบ ส่งผลลัพธ์ที่สำเร็จกลับไป
       return MeasurementResult(
         success: true,
         heartGirth: heartGirthCircumference,
         bodyLength: bodyLengthCm,
-        height: null, // ไม่ได้วัดความสูง
-        rawWeight: weightInKg,
-        adjustedWeight: adjustedWeight,
+        height: null,
+        rawWeight: weightResult['rawWeight'],     // น้ำหนักดิบจาก WeightCalculator
+        adjustedWeight: weightResult['adjustedWeight'], // น้ำหนักที่ปรับแล้วจาก WeightCalculator
         confidence: confidence,
         detectionResult: detectionResult,
       );
@@ -557,6 +563,8 @@ class CattleMeasurementService {
     }
   }
 }
+
+
 
 // คลาสสำหรับเก็บผลลัพธ์การวัด
 class MeasurementResult {
