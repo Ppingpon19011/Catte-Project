@@ -885,7 +885,6 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         _isSaving = true;
       });
       
-      
       // เก็บภาพที่มีการไฮไลท์การวัด
       final appDir = await getApplicationDocumentsDirectory();
       final fileName = 'analyzed_${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -905,6 +904,15 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
             ? 'รอบอก: ${_heartGirthCm.toStringAsFixed(1)} ซม., ความยาว: ${_bodyLengthCm.toStringAsFixed(1)} ซม. (${_isManualMeasurement ? 'วัดด้วยตนเอง' : 'วัดโดยอัตโนมัติ'})'
             : _notesController.text,
       );
+      
+      // บันทึกข้อมูลลงฐานข้อมูล
+      final recordId = await _dbHelper.insertWeightRecord(weightRecord); // ตรวจสอบค่า recordId ที่ได้กลับมา
+      
+      if (recordId.isEmpty) {
+        // กรณีบันทึกไม่สำเร็จ
+        print('การบันทึกข้อมูลไม่สำเร็จ: recordId เป็นค่าว่าง');
+        throw Exception('การบันทึกข้อมูลไม่สำเร็จ');
+      }
       
       // อัปเดตสถานะว่าได้บันทึกแล้ว
       setState(() {

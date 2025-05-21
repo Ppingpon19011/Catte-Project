@@ -377,6 +377,8 @@ class DatabaseHelper {
     if (existingRecords.isNotEmpty) {
       return existingRecords.first[columnRecordId] as String;
     }
+
+    print('กำลังบันทึกข้อมูลน้ำหนัก: ${record.weight} กก. ของโค ID: ${record.cattleId}');
     
     await db.transaction((txn) async {
       try {
@@ -392,9 +394,9 @@ class DatabaseHelper {
         
         // บันทึก WeightRecord - ใช้ txn ไม่ใช่ db
         await txn.insert(tableNameWeightRecord, row);
+        print('บันทึกน้ำหนักสำเร็จ recordId: $recordId');
         
-        // ดึงข้อมูลโค - ระวัง! ต้องใช้ txn ไม่ใช่ db
-        // ไม่สามารถใช้ getCattleById ได้โดยตรง เพราะมันจะใช้ db ไม่ใช่ txn
+        // ดึงข้อมูลโค
         List<Map<String, dynamic>> cattleResult = await txn.query(
           tableNameCattle,
           where: '$columnId = ?',

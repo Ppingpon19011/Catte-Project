@@ -110,7 +110,7 @@ class UserGuideScreen extends StatelessWidget {
         _buildGuideStep(
           number: 2,
           title: 'จุดอ้างอิง',
-          description: 'วางวัตถุอ้างอิงที่ทราบขนาดแน่นอน (เช่น ไม้บรรทัด 100 ซม.) ใกล้กับโค เพื่อช่วยในการคำนวณขนาดที่แท้จริง',
+          description: 'วางวัตถุอ้างอิงที่ทราบขนาดแน่นอน (เช่น ไม้ขนาด 100 ซม.ที่พันเทปเหลืองตรงปลายทั้ง 2 ด้าน) ใกล้กับโค เพื่อช่วยในการคำนวณขนาดที่แท้จริง',
           icon: Icons.straighten,
         ),
         _buildGuideStep(
