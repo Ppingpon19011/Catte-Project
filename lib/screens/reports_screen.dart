@@ -152,52 +152,65 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       // ดึงข้อมูลบันทึกน้ำหนักของโคตัวนี้
       List<WeightRecord> cattleRecords = allRecords.where((r) => r.cattleId == cattle.id).toList();
       
-      // ถ้ามีบันทึกน้ำหนัก เรียงตามวันที่จากเก่าไปใหม่
       if (cattleRecords.isNotEmpty) {
+        // เรียงตามวันที่จากเก่าไปใหม่
         cattleRecords.sort((a, b) => a.date.compareTo(b.date));
         
-        // น้ำหนักเริ่มต้น (จากการเพิ่มโค)
-        double initialWeight = 0.0;
+        // กำหนดน้ำหนักแรก - ใช้กลยุทธ์ที่แม่นยำขึ้น
+        double initialWeight = cattle.estimatedWeight; // ค่าเริ่มต้น
+        DateTime referenceDate = cattle.lastUpdated; // วันที่อ้างอิง
         
-        // ตรวจสอบว่ามีบันทึกน้ำหนักแรก
+        // ค้นหาบันทึกแรกที่เหมาะสม
         WeightRecord? firstRecord;
         
-        // ตรวจสอบว่าบันทึกแรกเกิดขึ้นในวันเดียวกันกับวันที่สร้างโค
-        // (ใช้ช่วงเวลา 24 ชั่วโมงเป็นเกณฑ์)
+        // วิธีที่ 1: หาบันทึกที่ใกล้เคียงกับวันที่อัปเดตล่าสุดมากที่สุด (ภายใน 7 วัน)
         for (var record in cattleRecords) {
-          if (record.date.difference(cattle.lastUpdated).inHours.abs() <= 24) {
-            firstRecord = record;
-            break;
+          int daysDiff = record.date.difference(cattle.lastUpdated).inDays.abs();
+          if (daysDiff <= 7) {
+            if (firstRecord == null || 
+                record.date.difference(cattle.lastUpdated).inDays.abs() < 
+                firstRecord.date.difference(cattle.lastUpdated).inDays.abs()) {
+              firstRecord = record;
+            }
           }
         }
         
-        // ถ้าไม่มีบันทึกในวันที่สร้าง ใช้น้ำหนักจากข้อมูลโคเป็นค่าเริ่มต้น
-        initialWeight = firstRecord?.weight ?? cattle.estimatedWeight;
-        
-        // น้ำหนักล่าสุด (จากการวัด)
-        double latestWeight = 0.0;
-        
-        // ใช้บันทึกล่าสุด
-        if (cattleRecords.isNotEmpty) {
-          cattleRecords.sort((a, b) => b.date.compareTo(a.date)); // เรียงจากใหม่ไปเก่า
-          latestWeight = cattleRecords.first.weight;
-        } else {
-          // ถ้าไม่มีบันทึก ใช้น้ำหนักจากข้อมูลโค
-          latestWeight = cattle.estimatedWeight;
+        // วิธีที่ 2: ถ้าไม่มีบันทึกใกล้วันที่อัปเดต ใช้บันทึกแรกสุด (ถ้าเป็นหลังวันเพิ่มโค)
+        if (firstRecord == null) {
+          for (var record in cattleRecords) {
+            if (record.date.isAfter(cattle.lastUpdated) || 
+                record.date.isAtSameMomentAs(cattle.lastUpdated)) {
+              firstRecord = record;
+              break;
+            }
+          }
         }
+        
+        // กำหนดน้ำหนักและวันที่เริ่มต้น
+        if (firstRecord != null) {
+          initialWeight = firstRecord.weight;
+          referenceDate = firstRecord.date;
+        }
+        
+        // น้ำหนักล่าสุด - ใช้จากบันทึกล่าสุด
+        cattleRecords.sort((a, b) => b.date.compareTo(a.date)); // เรียงจากใหม่ไปเก่า
+        double latestWeight = cattleRecords.first.weight;
+        DateTime latestWeightDate = cattleRecords.first.date;
         
         // คำนวณความแตกต่าง
         double difference = latestWeight - initialWeight;
         double percentChange = initialWeight > 0 ? (difference / initialWeight) * 100 : 0.0;
         
-        // ระยะเวลาการเลี้ยง (วัน)
-        int daysKept = DateTime.now().difference(cattle.birthDate).inDays;
+        // คำนวณระยะเวลาการเลี้ยง - ใช้จากวันที่อ้างอิงจนถึงวันที่วัดน้ำหนักล่าสุด
+        int daysKept = latestWeightDate.difference(referenceDate).inDays;
+        
+        // ถ้าระยะเวลาน้อยกว่า 1 วัน ให้ใช้อย่างน้อย 1 วัน
+        if (daysKept < 1) {
+          daysKept = 1;
+        }
         
         // คำนวณการเติบโตเฉลี่ยต่อวัน
-        double dailyGrowth = 0.0;
-        if (daysKept > 0) {
-          dailyGrowth = difference / daysKept.toDouble(); // แปลง int เป็น double ชัดเจน
-        }
+        double dailyGrowth = difference / daysKept.toDouble();
         
         // สร้างข้อมูลการเปรียบเทียบ
         result.add({
@@ -208,10 +221,13 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           'percentChange': percentChange,
           'daysKept': daysKept,
           'dailyGrowth': dailyGrowth,
+          'latestWeightDate': latestWeightDate,
+          'referenceDate': referenceDate, // เพิ่มวันที่อ้างอิง
+          'hasWeightRecords': true,
         });
       } else {
         // ถ้าไม่มีบันทึกน้ำหนัก ใช้ข้อมูลโคอย่างเดียว
-        final int daysKept = DateTime.now().difference(cattle.birthDate).inDays;
+        final int daysKept = DateTime.now().difference(cattle.lastUpdated).inDays;
         
         result.add({
           'cattle': cattle,
@@ -219,8 +235,11 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           'latestWeight': cattle.estimatedWeight,
           'difference': 0.0,
           'percentChange': 0.0,
-          'daysKept': daysKept,
+          'daysKept': daysKept > 0 ? daysKept : 1,
           'dailyGrowth': 0.0,
+          'latestWeightDate': cattle.lastUpdated,
+          'referenceDate': cattle.lastUpdated,
+          'hasWeightRecords': false,
         });
       }
     }
@@ -622,7 +641,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'ข้อมูลนี้แสดงการเปรียบเทียบระหว่างน้ำหนักแรกเข้าและน้ำหนักล่าสุดที่วัดได้',
+                  'ข้อมูลนี้แสดงการเปรียบเทียบระหว่างน้ำหนักแรกเข้าและน้ำหนักล่าสุดที่วัดได้ โดยใช้วันที่อัปเดตข้อมูลโคหรือการบันทึกน้ำหนักครั้งแรกเป็นจุดเริ่มต้น',
                   style: TextStyle(color: Colors.blue[800]),
                 ),
               ),
@@ -745,22 +764,67 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                     color: Colors.grey.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
                     children: [
-                      Text(
-                        'อัตราการเติบโต:',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.textSecondaryColor,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'อัตราการเติบโต:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textSecondaryColor,
+                            ),
+                          ),
+                          Text(
+                            '${dailyGrowth.toStringAsFixed(3)} กก./วัน',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: changeColor,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        '${dailyGrowth.toStringAsFixed(3)} กก./วัน',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: changeColor,
-                        ),
+                      SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'ระยะเวลา:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textSecondaryColor,
+                            ),
+                          ),
+                          Text(
+                            '$daysKept วัน',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textSecondaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // เพิ่มข้อมูลวันที่เริ่มต้น
+                      SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'วันที่เริ่มต้น:',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondaryColor,
+                            ),
+                          ),
+                          Text(
+                            DateFormat('dd/MM/yy').format(data['referenceDate'] as DateTime),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondaryColor,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -802,8 +866,8 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
         children: [
           _buildSummaryCard(),
           SizedBox(height: 20),
-          _buildWeightDistributionCard(),
-          SizedBox(height: 20),
+          // _buildWeightDistributionCard(),
+          // SizedBox(height: 20),
           _buildWeightComparisonCard(),
           SizedBox(height: 20),
           _buildTopCattleCard(),

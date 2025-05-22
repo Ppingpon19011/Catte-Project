@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+// ลบ import นี้ออกชั่วคราว
+// import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/home_screen.dart';
 import 'screens/menu_screen.dart';
 import 'utils/theme_config.dart';  // นำเข้าไฟล์ธีมที่สร้างขึ้น
@@ -15,6 +17,18 @@ class CattleWeightApp extends StatelessWidget {
       theme: AppTheme.lightTheme,  // ใช้ธีมที่กำหนดไว้
       home: MainScreen(),
       debugShowCheckedModeBanner: false,
+      
+      // ลบส่วน localization ออกชั่วคราว
+      // localizationsDelegates: [
+      //   GlobalMaterialLocalizations.delegate,
+      //   GlobalWidgetsLocalizations.delegate,
+      //   GlobalCupertinoLocalizations.delegate,
+      // ],
+      // supportedLocales: [
+      //   Locale('en', 'US'), // English
+      //   Locale('th', 'TH'), // Thai
+      // ],
+      // locale: Locale('th', 'TH'), // ตั้งเป็นภาษาไทยเป็นค่าเริ่มต้น
     );
   }
 }

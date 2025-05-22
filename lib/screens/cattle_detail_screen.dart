@@ -10,6 +10,7 @@ import '../widgets/detail_row.dart';
 import '../widgets/unit_display_widget.dart';
 import '../utils/theme_config.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:intl/intl.dart'; // เพิ่ม import สำหรับ DateFormat
 
 class CattleDetailScreen extends StatefulWidget {
   final Cattle cattle;
@@ -59,6 +60,104 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
         setState(() {
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  // เพิ่มฟังก์ชันสำหรับแก้ไขวันที่อัปเดตล่าสุด
+  Future<void> _editLastUpdatedDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _cattle.lastUpdated,
+      firstDate: DateTime(2010),
+      lastDate: DateTime.now(),
+      helpText: 'เลือกวันที่อัปเดตล่าสุด',
+      cancelText: 'ยกเลิก',
+      confirmText: 'ยืนยัน',
+    );
+
+    if (picked != null && picked != _cattle.lastUpdated) {
+      // แสดง dialog ยืนยัน
+      bool confirm = await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('ยืนยันการแก้ไข'),
+          content: Text(
+            'คุณต้องการเปลี่ยนวันที่อัปเดตล่าสุดเป็น ${DateFormat('dd/MM/yyyy').format(picked)} ใช่หรือไม่?'
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('ยกเลิก'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('ยืนยัน', style: TextStyle(color: AppTheme.primaryColor)),
+            ),
+          ],
+        ),
+      ) ?? false;
+
+      if (confirm) {
+        setState(() {
+          _isLoading = true;
+        });
+
+        try {
+          // สร้าง Cattle object ใหม่พร้อมวันที่ที่อัปเดต
+          final updatedCattle = Cattle(
+            id: _cattle.id,
+            name: _cattle.name,
+            breed: _cattle.breed,
+            imageUrl: _cattle.imageUrl,
+            estimatedWeight: _cattle.estimatedWeight,
+            lastUpdated: picked, // วันที่ใหม่ที่เลือก
+            cattleNumber: _cattle.cattleNumber,
+            gender: _cattle.gender,
+            birthDate: _cattle.birthDate,
+            fatherNumber: _cattle.fatherNumber,
+            motherNumber: _cattle.motherNumber,
+            breeder: _cattle.breeder,
+            currentOwner: _cattle.currentOwner,
+            color: _cattle.color,
+          );
+
+          // อัปเดตในฐานข้อมูล
+          await _dbHelper.updateCattle(updatedCattle);
+
+          // อัปเดต state
+          setState(() {
+            _cattle = updatedCattle;
+          });
+
+          // แสดงข้อความแจ้งเตือน
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('อัปเดตวันที่เรียบร้อยแล้ว'),
+                backgroundColor: AppTheme.successColor,
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('เกิดข้อผิดพลาดในการอัปเดต: $e'),
+                backgroundColor: AppTheme.errorColor,
+              ),
+            );
+          }
+        } finally {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+          }
+        }
       }
     }
   }
@@ -366,7 +465,7 @@ Future<void> _navigateToWeightEstimateScreen() async {
                           DetailRow(title: 'เจ้าของปัจจุบัน', value: _cattle.currentOwner),
                           
                           SizedBox(height: 20),
-                          // ข้อมูลน้ำหนัก
+                          // ข้อมูลน้ำหนัก - แก้ไขให้สามารถกดแก้ไขวันที่ได้
                           _buildSectionHeader('ข้อมูลน้ำหนัก'),
                           Container(
                             padding: EdgeInsets.all(16),
@@ -400,24 +499,44 @@ Future<void> _navigateToWeightEstimateScreen() async {
                                 ),
                                 SizedBox(height: 8),
                                 Divider(thickness: 1, color: AppTheme.dividerColor),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'อัปเดตล่าสุด',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: AppTheme.textSecondaryColor,
-                                      ),
+                                // แก้ไขส่วนวันที่อัปเดตล่าสุดให้สามารถกดได้
+                                InkWell(
+                                  onTap: _editLastUpdatedDate, // เพิ่ม onTap
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 4),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              'อัปเดตล่าสุด',
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                color: AppTheme.textSecondaryColor,
+                                              ),
+                                            ),
+                                            SizedBox(width: 4),
+                                            Icon(
+                                              Icons.edit_calendar,
+                                              size: 16,
+                                              color: AppTheme.primaryColor,
+                                            ),
+                                          ],
+                                        ),
+                                        Text(
+                                          _formatDate(_cattle.lastUpdated),
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: AppTheme.textSecondaryColor,
+                                            decoration: TextDecoration.underline,
+                                            decorationColor: AppTheme.primaryColor,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    Text(
-                                      _formatDate(_cattle.lastUpdated),
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: AppTheme.textSecondaryColor,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ],
                             ),
