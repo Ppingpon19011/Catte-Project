@@ -307,31 +307,49 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
     }
   }
 
-// แก้ไขฟังก์ชัน _navigateToWeightEstimateScreen
-Future<void> _navigateToWeightEstimateScreen() async {
-  try {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => WeightEstimateScreen(cattle: _cattle), // ตรวจสอบชื่อคลาส
-      ),
-    );
-    
-    if (result == true) {
-      await _refreshCattleData();
-    }
-  } catch (e) {
-    print('Error navigating to weight estimate screen: $e');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('เกิดข้อผิดพลาดในการเปิดหน้าประมาณน้ำหนัก: $e'),
-          backgroundColor: AppTheme.errorColor,
+  // แก้ไขฟังก์ชัน _navigateToWeightEstimateScreen
+  Future<void> _navigateToWeightEstimateScreen() async {
+    try {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WeightEstimateScreen(cattle: _cattle),
         ),
       );
+      
+      // ตรวจสอบว่ามีการอัพเดทข้อมูลหรือไม่
+      if (result != null && result is Map<String, dynamic>) {
+        if (result['updated'] == true) {
+          print("มีการอัพเดทข้อมูลน้ำหนักจาก WeightEstimateScreen");
+          print("น้ำหนักใหม่: ${result['newWeight']} กก.");
+          
+          // รีเฟรชข้อมูลโค
+          await _refreshCattleData();
+          
+          // แสดงข้อความแจ้งเตือน
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('อัพเดทข้อมูลน้ำหนักเรียบร้อยแล้ว: ${result['newWeight']?.toStringAsFixed(1) ?? ''} กก.'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Error navigating to weight estimate screen: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการเปิดหน้าประมาณน้ำหนัก: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
-}
 
   // ฟังก์ชันนำทางไปหน้ากราฟการเจริญเติบโต
   void _navigateToGrowthChartScreen() {

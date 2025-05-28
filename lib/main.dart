@@ -9,6 +9,9 @@ void main() {
   runApp(CattleWeightApp());
 }
 
+// *** เพิ่ม: Global RouteObserver สำหรับการติดตามการนำทาง ***
+final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
+
 class CattleWeightApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -17,6 +20,9 @@ class CattleWeightApp extends StatelessWidget {
       theme: AppTheme.lightTheme,  // ใช้ธีมที่กำหนดไว้
       home: MainScreen(),
       debugShowCheckedModeBanner: false,
+      
+      // *** เพิ่ม: navigatorObservers เพื่อให้ RouteAware ทำงานได้ ***
+      navigatorObservers: [routeObserver],
       
       // ลบส่วน localization ออกชั่วคราว
       // localizationsDelegates: [

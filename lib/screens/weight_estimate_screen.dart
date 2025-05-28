@@ -21,6 +21,16 @@ import 'package:flutter/widgets.dart';
 
 import '../screens/manual_measurement_screen.dart';
 
+enum MeasurementState {
+  initial,
+  loading,
+  analyzing,
+  calculating,
+  completed,
+  error,
+  saved
+}
+
 class WeightEstimateScreen extends StatefulWidget {
   final Cattle cattle;
 
@@ -42,6 +52,8 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
   bool _hasResult = false;
   File? _resizedImageFile;
   bool _resultWasAlreadySaved = false;
+  late Cattle _currentCattle;
+  Timer? _debounceTimer;
 
   // ตัวแปรเพื่อตรวจสอบว่ามีการแสดง dialog ไปแล้วหรือไม่
   bool _isDialogShowing = false;
@@ -100,6 +112,8 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     _cattleMeasurementService = CattleMeasurementService();
     _initializeMeasurementService();
     _loadWeightHistory();
+    _currentCattle = widget.cattle;
+    _dbHelper.checkDatabaseStructure();
     
     // ลงทะเบียนฟังก์ชันสำหรับตรวจจับการเปลี่ยนแปลงของพิกัดจุด
     DrawnPointsProvider().addListener(_onDrawnPointsUpdated);
@@ -107,6 +121,9 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
 
   @override
   void dispose() {
+    // ยกเลิก timer
+    _debounceTimer?.cancel();
+    
     // ยกเลิกการลงทะเบียนฟังก์ชัน
     DrawnPointsProvider().removeListener(_onDrawnPointsUpdated);
     
@@ -128,28 +145,37 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
 
   // ฟังก์ชันที่จะเรียกเมื่อมีการอัปเดตพิกัดจุดที่วาด
   void _onDrawnPointsUpdated() {
-    // ตรวจสอบว่าเพิ่งมีการคำนวณไปแล้วหรือไม่
+    // เพิ่มการตรวจสอบให้เข้มงวดขึ้น
     if (_justCalculated) {
       print("ข้ามการคำนวณจาก _onDrawnPointsUpdated เพราะเพิ่งคำนวณไปแล้ว");
       return;
     }
     
-    // ตรวจสอบว่ากำลังประมวลผลอยู่หรือไม่
     if (_isProcessing) {
       print("ข้ามการคำนวณจาก _onDrawnPointsUpdated เพราะกำลังประมวลผล");
       return;
     }
     
+    // เพิ่มการตรวจสอบว่ามีผลลัพธ์แล้วหรือไม่
+    if (_hasResult && _estimatedWeight != null && _estimatedWeight! > 0) {
+      print("ข้ามการคำนวณจาก _onDrawnPointsUpdated เพราะมีผลลัพธ์แล้ว");
+      return;
+    }
+    
     print("มีการอัปเดตพิกัดจุด - เรียกคำนวณน้ำหนัก");
     
-    // เรียกคำนวณน้ำหนักแบบ debounce เพื่อป้องกันการเรียกซ้ำซ้อน
-    // ใช้ Future.delayed เพื่อให้มีการรอเวลาเล็กน้อยก่อนเรียกคำนวณ
-    Future.delayed(Duration(milliseconds: 300), () {
-      if (mounted && !_justCalculated && !_isProcessing) {
+    // ยกเลิก timer เก่าก่อน (ถ้ามี)
+    _debounceTimer?.cancel();
+    
+    // ใช้ timer เพื่อ debounce การเรียก
+    _debounceTimer = Timer(Duration(milliseconds: 500), () {
+      if (mounted && !_justCalculated && !_isProcessing && !_hasResult) {
         _calculateMeasurementsFromDrawnPoints();
       }
     });
   }
+
+  
 
   Future<ui.Image> _getImageInfoFromFile(File imageFile) async {
     final Completer<ui.Image> completer = Completer();
@@ -1080,7 +1106,8 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         notes: notes,
       );
       
-      // บันทึกข้อมูลลงฐานข้อมูล
+      // *** ส่วนสำคัญ: บันทึกข้อมูลลงฐานข้อมูล ***
+      // DatabaseHelper จะจัดการการอัปเดตน้ำหนักโคและแจ้งเตือน listeners โดยอัตโนมัติ
       final recordId = await _dbHelper.insertWeightRecord(weightRecord);
       
       if (recordId.isEmpty) {
@@ -1113,6 +1140,21 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
           }
         });
       }
+      
+      // *** เพิ่ม: ส่งสัญญาณกลับไปยังหน้าก่อนหน้า ***
+      // เพื่อให้หน้าอื่นๆ รู้ว่ามีการอัพเดทข้อมูล
+      // หน่วงเวลาเล็กน้อยเพื่อให้การบันทึกเสร็จสิ้น
+      Future.delayed(Duration(milliseconds: 500), () {
+        if (mounted && Navigator.canPop(_buildContext)) {
+          // ส่งค่ากลับเพื่อบอกว่ามีการอัพเดทข้อมูล
+          Navigator.pop(_buildContext, {
+            'updated': true,
+            'newWeight': _estimatedWeight,
+            'cattleId': widget.cattle.id,
+            'success': true,
+          });
+        }
+      });
       
     } catch (e) {
       print('เกิดข้อผิดพลาดในการบันทึกข้อมูล: $e');
@@ -1166,38 +1208,104 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     );
   }
 
+  Future<void> _updateCattleWeightAfterDeletion() async {
+    try {
+      // ดึงบันทึกน้ำหนักทั้งหมดของโคตัวนี้ที่เหลืออยู่
+      final remainingRecords = await _dbHelper.getWeightRecordsByCattleId(_currentCattle.id);
+      
+      double newWeight;
+      DateTime newLastUpdated;
+      
+      if (remainingRecords.isNotEmpty) {
+        // เรียงลำดับตามวันที่จากใหม่ไปเก่า
+        remainingRecords.sort((a, b) => b.date.compareTo(a.date));
+        
+        // ใช้น้ำหนักล่าสุดที่เหลืออยู่
+        newWeight = remainingRecords.first.weight;
+        newLastUpdated = remainingRecords.first.date;
+      } else {
+        // ถ้าไม่มีบันทึกน้ำหนักเหลือ ใช้น้ำหนักเริ่มต้น
+        newWeight = widget.cattle.estimatedWeight; // คงน้ำหนักเดิมไว้
+        newLastUpdated = DateTime.now();
+      }
+      
+      // อัปเดตน้ำหนักในฐานข้อมูล
+      await _dbHelper.updateCattleWeight(_currentCattle.id, newWeight, newLastUpdated);
+      
+      // อัปเดต state ของโค
+      setState(() {
+        _currentCattle = _currentCattle.copyWith(
+          estimatedWeight: newWeight,
+          lastUpdated: newLastUpdated,
+        );
+      });
+      
+      print('อัปเดตน้ำหนักโคเป็น: $newWeight กก.');
+      
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการอัปเดตน้ำหนักโค: $e');
+      // ไม่ throw error เพื่อไม่ให้หยุดการทำงานของการลบ
+      ScaffoldMessenger.of(_buildContext).showSnackBar(
+        SnackBar(
+          content: Text('เกิดข้อผิดพลาดในการอัปเดตน้ำหนักโค: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
   // ลบประวัติน้ำหนัก
   Future<void> _deleteWeightRecord(WeightRecord record) async {
     try {
-      await _dbHelper.deleteWeightRecord(record.recordId);
+      print('เริ่มลบบันทึกน้ำหนัก ID: ${record.recordId}');
       
-      // ลบรูปภาพถ้ามี
-      if (record.imagePath.isNotEmpty) {
-        File imageFile = File(record.imagePath);
-        if (await imageFile.exists()) {
-          await imageFile.delete();
+      // ลบบันทึกจากฐานข้อมูล
+      final deleteResult = await _dbHelper.deleteWeightRecord(record.recordId);
+      
+      if (deleteResult > 0) {
+        print('ลบบันทึกจากฐานข้อมูลสำเร็จ');
+        
+        // ลบรูปภาพถ้ามี
+        if (record.imagePath.isNotEmpty && !record.imagePath.startsWith('assets/')) {
+          try {
+            File imageFile = File(record.imagePath);
+            if (await imageFile.exists()) {
+              await imageFile.delete();
+              print('ลบรูปภาพสำเร็จ: ${record.imagePath}');
+            }
+          } catch (e) {
+            print('ไม่สามารถลบรูปภาพได้: $e');
+            // ไม่หยุดการทำงาน แค่แสดง warning
+          }
         }
+        
+        // อัปเดตน้ำหนักของโค (ไม่ให้ error หยุดการทำงาน)
+        await _updateCattleWeightAfterDeletion();
+        
+        // โหลดข้อมูลประวัติใหม่
+        await _loadWeightHistory();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(_buildContext).showSnackBar(
+            SnackBar(
+              content: Text('ลบประวัติน้ำหนักเรียบร้อยแล้ว'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        throw Exception('ไม่สามารถลบบันทึกจากฐานข้อมูลได้');
       }
       
-      // โหลดข้อมูลประวัติใหม่
-      await _loadWeightHistory();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(_buildContext).showSnackBar(
-          SnackBar(
-            content: Text('ลบประวัติน้ำหนักเรียบร้อยแล้ว'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       print('เกิดข้อผิดพลาดในการลบประวัติน้ำหนัก: $e');
       
       if (mounted) {
         ScaffoldMessenger.of(_buildContext).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาด: $e'),
+            content: Text('เกิดข้อผิดพลาดในการลบ: ${e.toString()}'),
             backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
           ),
         );
       }
@@ -1858,33 +1966,47 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
       ),
     );
   }
+  
+  // ฟังก์ชันช่วยรีเซ็ตค่า flag
+  void _resetCalculationFlags() {
+    Future.delayed(Duration(milliseconds: 500), () {
+      if (mounted) {
+        setState(() {
+          _justCalculated = false;
+          _isProcessing = false;
+        });
+      }
+    });
+  }
 
   void _calculateMeasurementsFromDrawnPoints() {
-    // เพิ่มเงื่อนไขเพื่อป้องกันการคำนวณหลายครั้ง
+    // เพิ่มการตรวจสอบที่เข้มงวดขึ้น
     if (_justCalculated) {
       print("ข้ามการคำนวณซ้ำเพราะเพิ่งคำนวณไปแล้ว");
+      return;
+    }
+    
+    if (_isProcessing) {
+      print("ข้ามการคำนวณเพราะกำลังประมวลผล");
+      return;
+    }
+    
+    if (_hasResult && _estimatedWeight != null && _estimatedWeight! > 0) {
+      print("ข้ามการคำนวณเพราะมีผลลัพธ์แล้ว");
       return;
     }
 
     // ตั้งค่าว่าอยู่ระหว่างการคำนวณ
     setState(() {
       _justCalculated = true;
+      _isProcessing = true; // เพิ่มการป้องกันเพิ่มเติม
     });
 
     List<Map<String, dynamic>> drawnPoints = DrawnPointsProvider().drawnPoints;
     
     if (drawnPoints.isEmpty) {
       print("ไม่มีจุดที่วาดบนภาพ");
-      
-      // รีเซ็ตสถานะ
-      Future.delayed(Duration(milliseconds: 500), () {
-        if (mounted) {
-          setState(() {
-            _justCalculated = false;
-          });
-        }
-      });
-      
+      _resetCalculationFlags();
       return;
     }
     
@@ -1905,15 +2027,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
             (!pointsByClass.containsKey(1) ? "รอบอก " : "") + 
             (!pointsByClass.containsKey(2) ? "จุดอ้างอิง " : ""));
       
-      // รีเซ็ตสถานะ
-      Future.delayed(Duration(milliseconds: 500), () {
-        if (mounted) {
-          setState(() {
-            _justCalculated = false;
-          });
-        }
-      });
-      
+      _resetCalculationFlags();
       return;
     }
     
@@ -1922,7 +2036,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
     var heartGirthPoint = pointsByClass[1]!; // รอบอก (สีแดง)
     var yellowMarkPoint = pointsByClass[2]!; // จุดอ้างอิง (สีเหลือง)
     
-    // คำนวณระยะห่างในพิกเซล (ใช้ระยะห่างระหว่างจุดปลายทั้งสองของแต่ละเส้น)
+    // คำนวณระยะห่างในพิกเซล
     double bodyLengthPixels = math.sqrt(
       math.pow(bodyLengthPoint['x2'] - bodyLengthPoint['x1'], 2) + 
       math.pow(bodyLengthPoint['y2'] - bodyLengthPoint['y1'], 2)
@@ -1938,52 +2052,25 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
       math.pow(yellowMarkPoint['y2'] - yellowMarkPoint['y1'], 2)
     );
     
-    // บันทึกระยะทางในพิกเซลเพื่อตรวจสอบ
-    print("ระยะทางในพิกเซล:");
-    print("- จุดอ้างอิง (สีเหลือง): $yellowMarkPixels พิกเซล");
-    print("- ความยาวลำตัว (สีฟ้า): $bodyLengthPixels พิกเซล");
-    print("- รอบอก (สีแดง): $heartGirthPixels พิกเซล");
-    
     // คำนวณอัตราส่วนพิกเซลต่อเซนติเมตร
-    // จุดอ้างอิงมีความยาว 100 ซม.
-    double pixelToCmRatio = yellowMarkPixels / 100.0; // เปลี่ยนเป็น 100 ซม. ตามขนาดจริง
+    double pixelToCmRatio = yellowMarkPixels / 100.0;
     
     if (pixelToCmRatio <= 0) {
       print("อัตราส่วนพิกเซลต่อเซนติเมตรไม่ถูกต้อง: $pixelToCmRatio");
-      
-      // รีเซ็ตสถานะ
-      Future.delayed(Duration(milliseconds: 500), () {
-        if (mounted) {
-          setState(() {
-            _justCalculated = false;
-          });
-        }
-      });
-      
+      _resetCalculationFlags();
       return;
     }
-    
-    print("อัตราส่วนพิกเซลต่อเซนติเมตร: $pixelToCmRatio พิกเซล/ซม.");
     
     // แปลงจากพิกเซลเป็นเซนติเมตร
     double bodyLengthCm = bodyLengthPixels / pixelToCmRatio;
     double heartGirthHeightCm = heartGirthPixels / pixelToCmRatio;
-    
-    // คำนวณเส้นรอบวงของรอบอกจากความสูง
     double heartGirthCircumference = WeightCalculator.calculateHeartGirthFromHeight(heartGirthHeightCm);
-    
-    // บันทึกขนาดในเซนติเมตรเพื่อตรวจสอบ
-    print("ขนาดในเซนติเมตร:");
-    print("- จุดอ้างอิง (สีเหลือง): 100.0 ซม.");
-    print("- ความยาวลำตัว (สีฟ้า): $bodyLengthCm ซม.");
-    print("- รอบอก (ความสูง, สีแดง): $heartGirthHeightCm ซม.");
-    print("- รอบอก (เส้นรอบวง): $heartGirthCircumference ซม.");
     
     // แปลงเป็นนิ้ว
     double bodyLengthInches = WeightCalculator.cmToInches(bodyLengthCm);
     double heartGirthInches = WeightCalculator.cmToInches(heartGirthCircumference);
     
-    // คำนวณน้ำหนักโดยใช้ WeightCalculator
+    // คำนวณน้ำหนัก
     double weightInKg = WeightCalculator.calculateWeight(heartGirthInches, bodyLengthInches);
     
     print("น้ำหนักที่คำนวณได้จากเส้นในภาพ: $weightInKg กก.");
@@ -1995,7 +2082,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
         _bodyLengthCm = bodyLengthCm;
         _estimatedWeight = weightInKg;
         _hasResult = true;
-        _confidenceValue = 0.9; // กำหนดค่าความเชื่อมั่น
+        _confidenceValue = 0.9;
       });
       
       // แสดงข้อความแจ้งเตือนน้ำหนักที่คำนวณได้เพียงครั้งเดียว
@@ -2008,12 +2095,13 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
       );
     }
     
-    // รีเซ็ตสถานะ _justCalculated หลังจากผ่านไป 1 วินาที
+    // รีเซ็ตเฉพาะ _justCalculated หลังจากผ่านไป 2 วินาที
     // เพื่อให้สามารถคำนวณใหม่ได้หากจำเป็น
-    Future.delayed(Duration(seconds: 1), () {
+    Future.delayed(Duration(seconds: 2), () {
       if (mounted) {
         setState(() {
           _justCalculated = false;
+          _isProcessing = false;
         });
       }
     });
@@ -2177,9 +2265,9 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                             CircleAvatar(
                               radius: 30,
                               backgroundImage:
-                                widget.cattle.imageUrl.startsWith('assets/')
-                                  ? AssetImage(widget.cattle.imageUrl)
-                                  : FileImage(File(widget.cattle.imageUrl))
+                                _currentCattle.imageUrl.startsWith('assets/')
+                                  ? AssetImage(_currentCattle.imageUrl)
+                                  : FileImage(File(_currentCattle.imageUrl))
                                     as ImageProvider,
                               onBackgroundImageError: (exception, stackTrace) {
                                 print("เกิดข้อผิดพลาดในการโหลดรูปภาพโค: $exception");
@@ -2192,17 +2280,24 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    widget.cattle.name,
+                                    _currentCattle.name,
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 18,
                                     ),
                                   ),
-                                  Text('สายพันธุ์: ${widget.cattle.breed}'),
-                                  Text('เพศ: ${widget.cattle.gender}'),
+                                  Text('สายพันธุ์: ${_currentCattle.breed}'),
+                                  Text('เพศ: ${_currentCattle.gender}'),
                                   Text(
-                                    'อายุ: ${_calculateAge(widget.cattle.birthDate)}',
+                                    'อายุ: ${_calculateAge(_currentCattle.birthDate)}',
                                   ),
+                                  Text(
+                                    'น้ำหนักปัจจุบัน: ${_currentCattle.estimatedWeight.toStringAsFixed(1)} กก.',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue,
+                                    ),
+                                  ),  
                                 ],
                               ),
                             ),
@@ -2464,16 +2559,10 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
       );
     }
     
-    // กรณีมีภาพวิเคราะห์แล้ว
-    if (_hasResult && _analyzedImageFile != null) {
-      return Image.file(_analyzedImageFile!, fit: BoxFit.contain);
-    }
-    
-    // กรณีมีรูปภาพที่ปรับขนาดแล้ว
+    // *** ให้ความสำคัญกับรูป resized ก่อน ***
     if (_resizedImageFile != null) {
       return LayoutBuilder(
         builder: (context, constraints) {
-          // ความกว้างสูงสุดและความสูงสูงสุดของพื้นที่แสดงผล
           final maxWidth = constraints.maxWidth;
           final maxHeight = constraints.maxHeight;
           
@@ -2491,19 +2580,14 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                 double displayWidth, displayHeight;
                 
                 if (imageRatio > containerRatio) {
-                  // ภาพกว้างกว่าพื้นที่แสดงผล
                   displayWidth = maxWidth;
                   displayHeight = maxWidth / imageRatio;
                 } else {
-                  // ภาพสูงกว่าพื้นที่แสดงผล
                   displayHeight = maxHeight;
                   displayWidth = maxHeight * imageRatio;
                 }
                 
-                // ขนาดมาตรฐานสำหรับการตรวจจับ (1280x1280)
                 final standardSize = Size(1280.0, 1280.0);
-                
-                // ใช้ขนาดจริงของภาพต้นฉบับ หรือขนาดมาตรฐาน
                 final originalSize = _detectionResult?.originalImageSize != null ?
                   Size(
                     _detectionResult!.originalImageSize!.width.toDouble(),
@@ -2516,7 +2600,7 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                     height: displayHeight,
                     child: Stack(
                       children: [
-                        // แสดงรูปภาพ
+                        // แสดงรูปภาพ resized
                         Image.file(
                           _resizedImageFile!,
                           width: displayWidth,
@@ -2524,37 +2608,23 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                           fit: BoxFit.fill,
                         ),
                         
-                        // ถ้ามีการตรวจจับแล้ว ให้วาดเส้นและกรอบทับบนภาพ
+                        // แสดง detection boxes ถ้ามี
                         if (_detectionResult != null && 
                             _detectionResult!.objects != null && 
                             _detectionResult!.objects!.isNotEmpty)
                           ClipRect(
-                            child: Builder(
-                              builder: (context) {
-                                // ถ้าไม่มีผลลัพธ์และไม่ได้กำลังประมวลผล ให้คำนวณเพียงครั้งเดียว
-                                if (!_hasResult && !_isProcessing && !_justCalculated) {
-                                  // เรียกคำนวณเพียงครั้งเดียวหลังจากวาด frame
-                                  Future.microtask(() {
-                                    if (mounted && !_hasResult && !_isProcessing && !_justCalculated) {
-                                      _calculateMeasurementsFromDrawnPoints();
-                                    }
-                                  });
-                                }
-                                
-                                return CustomPaint(
-                                  size: Size(displayWidth, displayHeight),
-                                  painter: EnhancedDetectionBoxPainter(
-                                    objects: _detectionResult!.objects!,
-                                    originalImageSize: originalSize,
-                                    displayImageSize: Size(displayWidth, displayHeight),
-                                    clipBounds: true,
-                                  ),
-                                );
-                              },
+                            child: CustomPaint(
+                              size: Size(displayWidth, displayHeight),
+                              painter: EnhancedDetectionBoxPainter(
+                                objects: _detectionResult!.objects!,
+                                originalImageSize: originalSize,
+                                displayImageSize: Size(displayWidth, displayHeight),
+                                clipBounds: true,
+                              ),
                             ),
                           ),
                           
-                        // แสดงปุ่มวัดด้วยตนเอง
+                        // ปุ่มวัดด้วยตนเอง
                         Positioned(
                           right: 10,
                           bottom: 10,
@@ -2568,22 +2638,6 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
                             onPressed: _navigateToManualMeasurement,
                           ),
                         ),
-                        
-                        // เพิ่มปุ่มสำหรับแสดงผลลัพธ์
-                        if (_hasResult)
-                          Positioned(
-                            left: 10,
-                            bottom: 10,
-                            child: ElevatedButton.icon(
-                              icon: Icon(Icons.visibility),
-                              label: Text('ดูผลลัพธ์'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: _showResultDialog,
-                            ),
-                          ),
                       ],
                     ),
                   ),
@@ -2601,6 +2655,11 @@ class _WeightEstimateScreenState extends State<WeightEstimateScreen> {
           );
         },
       );
+    }
+    
+    // ถ้ามีรูปวิเคราะห์แล้ว แต่ไม่มี resized image
+    if (_hasResult && _analyzedImageFile != null) {
+      return Image.file(_analyzedImageFile!, fit: BoxFit.contain);
     }
     
     // กรณีมีรูปภาพต้นฉบับแต่ยังไม่มีการปรับขนาด
@@ -3044,6 +3103,9 @@ class EnhancedDetectionBoxPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (objects.isEmpty) return;
     
+    // เก็บข้อมูลจุดปัจจุบันก่อนวาด
+    List<Map<String, dynamic>> existingPoints = DrawnPointsProvider().drawnPoints;
+    
     // ถ้า clipBounds เป็น true ให้จำกัดการวาดให้อยู่ในพื้นที่แสดงภาพ
     if (clipBounds) {
       canvas.clipRect(Rect.fromLTWH(0, 0, size.width, size.height));
@@ -3058,18 +3120,9 @@ class EnhancedDetectionBoxPainter extends CustomPainter {
     
     // กำหนดสีและสไตล์สำหรับเส้น
     final Map<int, Paint> paints = {
-      0: Paint() // ความยาวลำตัว (Body Length)
-        ..color = Colors.blue
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth,
-      1: Paint() // รอบอก (Heart Girth)
-        ..color = Colors.red
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth,
-      2: Paint() // จุดอ้างอิง (Yellow Mark)
-        ..color = Colors.amber
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth,
+      0: Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = strokeWidth,
+      1: Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = strokeWidth,
+      2: Paint()..color = Colors.amber..style = PaintingStyle.stroke..strokeWidth = strokeWidth,
     };
     
     // สร้างลิสต์เก็บพิกัดของจุดที่วาด
@@ -3077,18 +3130,15 @@ class EnhancedDetectionBoxPainter extends CustomPainter {
     
     // วาดเส้นสำหรับแต่ละวัตถุที่ตรวจพบ
     for (var obj in objects) {
-      // เลือกสีตามประเภทของวัตถุ
       final paint = paints[obj.classId] ?? 
         (Paint()..color = Colors.grey..style = PaintingStyle.stroke..strokeWidth = strokeWidth);
       
-      // ขนาดของจุดปลายตามขนาดของภาพที่แสดง
       double pointRadius = math.max(3.0, strokeWidth * 1.5);
       
       // กำหนดพิกัดสำหรับการวาดเส้น
       double x1, y1, x2, y2;
       
       if (obj.boundingBox != null) {
-        // แปลงพิกัดของ bounding box ตามอัตราส่วนการแสดงผล
         double left = obj.boundingBox!.left * scaleX;
         double top = obj.boundingBox!.top * scaleY;
         double right = obj.boundingBox!.right * scaleX;
@@ -3101,30 +3151,26 @@ class EnhancedDetectionBoxPainter extends CustomPainter {
         bottom = math.max(0, math.min(bottom, size.height));
         
         // กำหนดพิกัดตามประเภทของวัตถุ
-        if (obj.classId == 0) {  // ความยาวลำตัว (Body Length)
-          // เส้นเฉียงจากมุมซ้ายล่างไปมุมขวาบน
-          x1 = left;     // มุมซ้ายล่าง x
-          y1 = bottom;   // มุมซ้ายล่าง y
-          x2 = right;    // มุมขวาบน x
-          y2 = top;      // มุมขวาบน y
+        if (obj.classId == 0) {  // ความยาวลำตัว
+          x1 = left;
+          y1 = bottom;
+          x2 = right;
+          y2 = top;
         } 
-        else if (obj.classId == 1) {  // รอบอก (Heart Girth)
-          // เส้นแนวตั้งตรงกลาง
-          x1 = (left + right) / 2;  // กึ่งกลาง x
-          y1 = top;                 // ด้านบน
-          x2 = x1;                  // คงที่ x เท่าเดิม
-          y2 = bottom;              // ด้านล่าง
+        else if (obj.classId == 1) {  // รอบอก
+          x1 = (left + right) / 2;
+          y1 = top;
+          x2 = x1;
+          y2 = bottom;
         } 
-        else {  // จุดอ้างอิง (Yellow Mark)
-          // เส้นแนวนอนตามกึ่งกลาง
-          x1 = left;               // ด้านซ้าย
-          y1 = (top + bottom) / 2; // กึ่งกลาง y
-          x2 = right;              // ด้านขวา
-          y2 = y1;                 // คงที่ y เท่าเดิม
+        else {  // จุดอ้างอิง
+          x1 = left;
+          y1 = (top + bottom) / 2;
+          x2 = right;
+          y2 = y1;
         }
       } 
       else {
-        // ถ้าไม่มี bounding box ให้ใช้พิกัดของเส้นโดยตรง
         x1 = obj.x1 * scaleX;
         y1 = obj.y1 * scaleY;
         x2 = obj.x2 * scaleX;
@@ -3148,39 +3194,50 @@ class EnhancedDetectionBoxPainter extends CustomPainter {
       });
       
       // วาดเส้น
-      canvas.drawLine(
-        Offset(x1, y1),
-        Offset(x2, y2),
-        paint,
-      );
+      canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
       
       // วาดจุดที่ปลายเส้น
-      canvas.drawCircle(
-        Offset(x1, y1),
-        pointRadius,
-        Paint()..color = paint.color,
-      );
-      
-      canvas.drawCircle(
-        Offset(x2, y2),
-        pointRadius,
-        Paint()..color = paint.color,
-      );
+      canvas.drawCircle(Offset(x1, y1), pointRadius, Paint()..color = paint.color);
+      canvas.drawCircle(Offset(x2, y2), pointRadius, Paint()..color = paint.color);
       
       // วาดป้ายกำกับที่กึ่งกลางเส้น
       double midX = (x1 + x2) / 2;
       double midY = (y1 + y2) / 2;
       
-      // แสดงป้ายกำกับเฉพาะเมื่ออยู่ในขอบเขตของภาพที่แสดง
       if (isPointVisible(midX, midY, displayImageSize)) {
         _drawLabel(canvas, obj.className, midX, midY, paint.color, size);
       }
     }
     
-    // อัปเดตค่าพิกัดจุดที่วาด
-    DrawnPointsProvider().updatePoints(drawnPoints);
+    // อัปเดตค่าพิกัดจุดที่วาดเฉพาะเมื่อมีการเปลี่ยนแปลง
+    bool pointsChanged = !_arePointListsEqual(existingPoints, drawnPoints);
+    
+    if (pointsChanged) {
+      print("มีการเปลี่ยนแปลงจุดที่วาด - อัปเดต DrawnPointsProvider");
+      DrawnPointsProvider().updatePoints(drawnPoints);
+    }
   }
-  
+
+  // ฟังก์ชันตรวจสอบว่าจุดเปลี่ยนแปลงหรือไม่
+  bool _arePointListsEqual(List<Map<String, dynamic>> list1, List<Map<String, dynamic>> list2) {
+    if (list1.length != list2.length) return false;
+    
+    for (int i = 0; i < list1.length; i++) {
+      var point1 = list1[i];
+      var point2 = list2[i];
+      
+      if (point1['classId'] != point2['classId'] ||
+          point1['x1'] != point2['x1'] ||
+          point1['y1'] != point2['y1'] ||
+          point1['x2'] != point2['x2'] ||
+          point1['y2'] != point2['y2']) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
   // ตรวจสอบว่าพิกัดอยู่ในขอบเขตของภาพที่แสดงหรือไม่
   bool isPointVisible(double x, double y, Size displaySize) {
     return x >= 0 && x <= displaySize.width && y >= 0 && y <= displaySize.height;

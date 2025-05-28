@@ -32,6 +32,41 @@ class Cattle {
     this.color, // เพิ่มข้อมูลสีของโค (ไม่จำเป็นต้องมี)
   });
 
+  /// สร้างสำเนาของ Cattle object พร้อมการแก้ไขค่าบางตัว
+  Cattle copyWith({
+    String? id,
+    String? name,
+    String? breed,
+    String? imageUrl,
+    double? estimatedWeight,
+    DateTime? lastUpdated,
+    String? cattleNumber,
+    String? gender,
+    DateTime? birthDate,
+    String? fatherNumber,
+    String? motherNumber,
+    String? breeder,
+    String? currentOwner,
+    String? color,
+  }) {
+    return Cattle(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      breed: breed ?? this.breed,
+      imageUrl: imageUrl ?? this.imageUrl,
+      estimatedWeight: estimatedWeight ?? this.estimatedWeight,
+      lastUpdated: lastUpdated ?? this.lastUpdated,
+      cattleNumber: cattleNumber ?? this.cattleNumber,
+      gender: gender ?? this.gender,
+      birthDate: birthDate ?? this.birthDate,
+      fatherNumber: fatherNumber ?? this.fatherNumber,
+      motherNumber: motherNumber ?? this.motherNumber,
+      breeder: breeder ?? this.breeder,
+      currentOwner: currentOwner ?? this.currentOwner,
+      color: color ?? this.color,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -68,5 +103,51 @@ class Cattle {
       currentOwner: map['currentOwner'],
       color: map['color'], // เพิ่มข้อมูลสีของโค
     );
+  }
+
+  /// เปรียบเทียบ Cattle objects เพื่อตรวจสอบว่าเหมือนกันหรือไม่
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is Cattle &&
+        other.id == id &&
+        other.name == name &&
+        other.breed == breed &&
+        other.imageUrl == imageUrl &&
+        other.estimatedWeight == estimatedWeight &&
+        other.lastUpdated == lastUpdated &&
+        other.cattleNumber == cattleNumber &&
+        other.gender == gender &&
+        other.birthDate == birthDate &&
+        other.fatherNumber == fatherNumber &&
+        other.motherNumber == motherNumber &&
+        other.breeder == breeder &&
+        other.currentOwner == currentOwner &&
+        other.color == color;
+  }
+
+  @override
+  int get hashCode {
+    return Object.hash(
+      id,
+      name,
+      breed,
+      imageUrl,
+      estimatedWeight,
+      lastUpdated,
+      cattleNumber,
+      gender,
+      birthDate,
+      fatherNumber,
+      motherNumber,
+      breeder,
+      currentOwner,
+      color,
+    );
+  }
+
+  @override
+  String toString() {
+    return 'Cattle{id: $id, name: $name, breed: $breed, estimatedWeight: $estimatedWeight}';
   }
 }

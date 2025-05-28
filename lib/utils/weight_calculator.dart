@@ -23,12 +23,16 @@ class WeightCalculator {
     // แปลงจากปอนด์เป็นกิโลกรัม
     double weightInKg = weightInPounds * 0.453592;
     
+    double adjustedWeight = weightInKg + (weightInKg * 0.15);
+
+    double adjustedWeightP = adjustedWeight / 0.453592;
+    
     print("ข้อมูลการคำนวณน้ำหนักจาก WeightCalculator:");
     print("- รอบอก: $heartGirthInches นิ้ว");
     print("- ความยาวลำตัว: $bodyLengthInches นิ้ว");
-    print("- น้ำหนัก: $weightInPounds ปอนด์ ($weightInKg กก.)");
+    print("- น้ำหนักดิบ: $adjustedWeightP ปอนด์ ($adjustedWeight กก.)");
     
-    return weightInKg;
+    return adjustedWeight;
   }
   
   // แปลงหน่วยจากเซนติเมตรเป็นนิ้ว
@@ -41,7 +45,7 @@ class WeightCalculator {
     return inches * 2.54;
   }
 
-  // ปรับค่าน้ำหนักตามเพศและอายุ
+  // ปรับค่าน้ำหนักตามเพศและอายุ (หลังจากบวก 15% แล้ว)
   static double adjustWeightByAgeAndGender(double calculatedWeight, String gender, int ageMonths) {
     double adjustedWeight = calculatedWeight;
     
@@ -98,8 +102,6 @@ class WeightCalculator {
       // คำนวณน้ำหนักด้วยสูตรหลัก
       double weightInKg = calculateWeight(heartGirthInches, bodyLengthInches);
       
-      // บันทึกค่าน้ำหนักดิบที่คำนวณได้
-      print("- น้ำหนักดิบที่คำนวณได้: $weightInKg กก.");
       
       return {
         'success': true,
@@ -107,7 +109,7 @@ class WeightCalculator {
         'heartGirthInches': heartGirthInches,
         'bodyLengthCm': bodyLengthCm,
         'bodyLengthInches': bodyLengthInches,
-        'rawWeight': weightInKg, // ส่งค่าน้ำหนักดิบที่คำนวณจากสูตรโดยตรง
+        'rawWeight': weightInKg,
         'adjustedWeight': adjustWeightByAgeAndGender(weightInKg, gender, ageMonths),
       };
     } catch (e) {
@@ -160,10 +162,9 @@ class WeightCalculator {
       double heartGirthInches = cmToInches(baseHeartGirth);
       double bodyLengthInches = cmToInches(baseBodyLength);
       
-      // คำนวณน้ำหนักด้วยสูตรหลัก (เป็นการคำนวณโดยตรงไม่ผ่านการปรับแต่ง)
+      // คำนวณน้ำหนักด้วยสูตรหลัก
       double weightInKg = calculateWeight(heartGirthInches, bodyLengthInches);
       
-      print("estimateFromImage - น้ำหนักที่คำนวณได้: $weightInKg กก.");
       
       // ส่งค่าที่ได้กลับไป
       return {
@@ -171,7 +172,7 @@ class WeightCalculator {
         'heartGirth': baseHeartGirth,
         'bodyLength': baseBodyLength,
         'height': height,
-        'rawWeight': weightInKg, // ส่งน้ำหนักดิบกลับไป
+        'rawWeight': weightInKg,
         'adjustedWeight': adjustWeightByAgeAndGender(weightInKg, gender, ageMonths),
         'confidence': 0.6,
         'message': 'ค่านี้เป็นค่าจำลอง ควรใช้การวัดด้วยตนเองเพื่อความแม่นยำ',
@@ -226,7 +227,9 @@ class WeightCalculator {
       }
     }
     
-    return baseWeight;
+    double adjustedWeight = baseWeight + (baseWeight * 0.15);
+    
+    return adjustedWeight;
   }
   
   // วิเคราะห์ข้อมูลน้ำหนักเทียบกับเกณฑ์

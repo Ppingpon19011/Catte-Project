@@ -1,3 +1,5 @@
+import 'dart:ui' show VoidCallback;
+
 import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -42,7 +44,8 @@ class DatabaseHelper {
   final String columnDate = 'date';
   final String columnNotes = 'notes';
 
-  List<Function()> _changeListeners = [];
+  // *** แก้ไข: เปลี่ยนจาก List<Function()> เป็น List<VoidCallback> ***
+  static final List<VoidCallback> _changeListeners = [];
 
   DatabaseHelper._internal();
 
@@ -103,20 +106,90 @@ class DatabaseHelper {
     return count != null && count > 0;
   }
 
-  // เพิ่มฟังก์ชันลงทะเบียน listener
-  void addChangeListener(Function() listener) {
-    _changeListeners.add(listener);
+  // *** แก้ไข: เปลี่ยนจาก Function() เป็น VoidCallback ***
+  void addChangeListener(VoidCallback listener) {
+    if (!_changeListeners.contains(listener)) {
+      _changeListeners.add(listener);
+      print('เพิ่ม change listener แล้ว (รวม: ${_changeListeners.length})');
+    }
   }
 
-  // เพิ่มฟังก์ชันลบ listener
-  void removeChangeListener(Function() listener) {
-    _changeListeners.remove(listener);
+  Future<void> checkDatabaseStructure() async {
+    try {
+      final db = await database;
+      
+      // ตรวจสอบโครงสร้างตาราง cattle
+      final cattleTableInfo = await db.rawQuery("PRAGMA table_info($tableNameCattle)");
+      print('โครงสร้างตาราง cattle:');
+      for (var column in cattleTableInfo) {
+        print('- ${column['name']}: ${column['type']}');
+      }
+      
+      // ตรวจสอบโครงสร้างตาราง weight_records
+      final weightTableInfo = await db.rawQuery("PRAGMA table_info($tableNameWeightRecord)");
+      print('โครงสร้างตาราง weight_records:');
+      for (var column in weightTableInfo) {
+        print('- ${column['name']}: ${column['type']}');
+      }
+      
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการตรวจสอบโครงสร้างฐานข้อมูล: $e');
+    }
+  }
+
+  /// อัปเดตน้ำหนักของโค
+  Future<void> updateCattleWeight(String cattleId, double newWeight, DateTime lastUpdated) async {
+    try {
+      final db = await database;
+      
+      await db.update(
+        'cattle',
+        {
+          'estimated_weight': newWeight,  // เปลี่ยนจาก 'estimatedWeight' เป็น 'estimated_weight'
+          'last_updated': lastUpdated.toIso8601String(),  // เปลี่ยนจาก 'lastUpdated' เป็น 'last_updated'
+        },
+        where: 'id = ?',
+        whereArgs: [cattleId],
+      );
+      
+      print('อัปเดตน้ำหนักโค ID: $cattleId เป็น $newWeight กก. เรียบร้อย');
+      
+      // แจ้งเตือน listeners ว่ามีการเปลี่ยนแปลงข้อมูล
+      _notifyChangeListeners();
+      
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการอัปเดตน้ำหนักโค: $e');
+      throw e;
+    }
+  }
+
+  /// ฟังก์ชันช่วยในการแจ้งเตือน listeners (ถ้ายังไม่มี)
+  void _notifyChangeListeners() {
+    for (var listener in _changeListeners) {
+      try {
+        listener();
+      } catch (e) {
+        print('เกิดข้อผิดพลาดในการเรียก change listener: $e');
+      }
+    }
+  }
+
+  // *** แก้ไข: เปลี่ยนจาก Function() เป็น VoidCallback ***
+  void removeChangeListener(VoidCallback listener) {
+    if (_changeListeners.remove(listener)) {
+      print('ลบ change listener แล้ว (เหลือ: ${_changeListeners.length})');
+    }
   }
   
-  // เพิ่มฟังก์ชันแจ้งเตือน listeners
+  // *** ปรับปรุง: เพิ่มการจัดการ error และ log ***
   void _notifyListeners() {
+    print('กำลังแจ้งเตือน ${_changeListeners.length} listeners เกี่ยวกับการเปลี่ยนแปลงข้อมูล');
     for (var listener in _changeListeners) {
-      listener();
+      try {
+        listener();
+      } catch (e) {
+        print('เกิดข้อผิดพลาดในการแจ้งเตือน listener: $e');
+      }
     }
   }
 
@@ -219,11 +292,12 @@ class DatabaseHelper {
     };
     
     await db.insert(tableNameCattle, row);
+    print('เพิ่มข้อมูลโคสำเร็จ: ${cattle.name} (ID: $id)');
     _notifyListeners();
     return id;
   }
 
-  // อัปเดตข้อมูลโค
+  // *** ปรับปรุง: อัปเดตข้อมูลโค ***
   Future<int> updateCattle(Cattle cattle) async {
     Database db = await database;
     
@@ -250,11 +324,12 @@ class DatabaseHelper {
       whereArgs: [cattle.id],
     );
 
+    print('อัปเดตข้อมูลโคสำเร็จ: ${cattle.name} - น้ำหนัก: ${cattle.estimatedWeight} กก.');
     _notifyListeners();
     return result;
   }
 
-  // ลบโค
+  // *** ปรับปรุง: ลบโค ***
   Future<int> deleteCattle(String id) async {
     Database db = await database;
     
@@ -272,6 +347,7 @@ class DatabaseHelper {
       whereArgs: [id],
     );
     
+    print('ลบข้อมูลโคสำเร็จ ID: $id');
     _notifyListeners();
     return result;
   }
@@ -302,7 +378,7 @@ class DatabaseHelper {
     return null;
   }
 
-  // ลบบันทึกน้ำหนัก
+  // *** ปรับปรุง: ลบบันทึกน้ำหนัก ***
   Future<int> deleteWeightRecord(String recordId) async {
     Database db = await database;
     final result = await db.delete(
@@ -311,6 +387,7 @@ class DatabaseHelper {
       whereArgs: [recordId],
     );
     
+    print('ลบข้อมูลน้ำหนักสำเร็จ ID: $recordId');
     _notifyListeners();
     return result;
   }
@@ -356,7 +433,7 @@ class DatabaseHelper {
     );
   }
 
-  // เพิ่มบันทึกน้ำหนัก
+  // *** ปรับปรุง: เพิ่มบันทึกน้ำหนัก พร้อมอัปเดตน้ำหนักโค ***
   Future<String> insertWeightRecord(WeightRecord record) async {
     final db = await database;
     String recordId = const Uuid().v4();
@@ -375,6 +452,7 @@ class DatabaseHelper {
     
     // ถ้าพบข้อมูลที่ซ้ำกัน ให้ใช้ข้อมูลเดิม
     if (existingRecords.isNotEmpty) {
+      print('พบข้อมูลซ้ำ - ใช้ record ID เดิม: ${existingRecords.first[columnRecordId]}');
       return existingRecords.first[columnRecordId] as String;
     }
 
@@ -396,7 +474,8 @@ class DatabaseHelper {
         await txn.insert(tableNameWeightRecord, row);
         print('บันทึกน้ำหนักสำเร็จ recordId: $recordId');
         
-        // ดึงข้อมูลโค
+        // *** ส่วนสำคัญ: อัปเดตน้ำหนักของโคด้วย ***
+        // ดึงข้อมูลโคปัจจุบัน
         List<Map<String, dynamic>> cattleResult = await txn.query(
           tableNameCattle,
           where: '$columnId = ?',
@@ -411,12 +490,20 @@ class DatabaseHelper {
           };
           
           // ใช้ txn ไม่ใช่ db
-          await txn.update(
+          int updateResult = await txn.update(
             tableNameCattle,
             cattleRow,
             where: '$columnId = ?',
             whereArgs: [record.cattleId],
           );
+          
+          if (updateResult > 0) {
+            print('อัปเดตน้ำหนักโคสำเร็จ - น้ำหนักใหม่: ${record.weight} กก.');
+          } else {
+            print('ไม่สามารถอัปเดตน้ำหนักโคได้');
+          }
+        } else {
+          print('ไม่พบข้อมูลโค ID: ${record.cattleId}');
         }
       } catch (e) {
         print('เกิดข้อผิดพลาดใน transaction: $e');
@@ -424,6 +511,7 @@ class DatabaseHelper {
       }
     });
     
+    print('แจ้งเตือน listeners เกี่ยวกับการเปลี่ยนแปลงข้อมูล');
     _notifyListeners();
     return recordId;
   }
@@ -459,6 +547,7 @@ class DatabaseHelper {
     Database db = await database;
     await db.delete(tableNameWeightRecord);
     await db.delete(tableNameCattle);
+    _notifyListeners();
   }
 
   // ตรวจสอบโครงสร้างฐานข้อมูล (ใช้สำหรับการดีบัก)

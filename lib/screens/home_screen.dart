@@ -232,10 +232,36 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     
-    // ถ้ามีการเปลี่ยนแปลงข้อมูล (เช่น แก้ไขหรือลบ)
-    if (result == true) {
-      // โหลดข้อมูลใหม่จากฐานข้อมูล
-      _loadCattleList();
+    // ตรวจสอบผลลัพธ์ที่ส่งกลับ
+    if (result != null) {
+      bool shouldRefresh = false;
+      
+      if (result is bool && result == true) {
+        // การเปลี่ยนแปลงทั่วไป
+        shouldRefresh = true;
+      } else if (result is Map<String, dynamic>) {
+        // การเปลี่ยนแปลงเฉพาะ
+        if (result['updated'] == true || 
+            result['weightDeleted'] == true || 
+            result['newWeight'] != null) {
+          shouldRefresh = true;
+          
+          // แสดงข้อความแจ้งเตือนตามการดำเนินการ
+          if (result['weightDeleted'] == true) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('อัปเดตน้ำหนักเรียบร้อย: ${result['newWeight']?.toStringAsFixed(1) ?? '0.0'} กก.'),
+                backgroundColor: AppTheme.successColor,
+              ),
+            );
+          }
+        }
+      }
+      
+      // โหลดข้อมูลใหม่หากจำเป็น
+      if (shouldRefresh) {
+        _loadCattleList();
+      }
     }
   }
 

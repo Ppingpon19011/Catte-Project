@@ -14,6 +14,7 @@ import '../widgets/unit_display_widget.dart';
 import '../utils/reports_screen_chart_painters.dart';
 import 'package:share_plus/share_plus.dart'; //package นี้ในการจัดการการแชร์ไฟล์
 import 'package:permission_handler/permission_handler.dart'; //package สำหรับการขอสิทธิ์
+import '../main.dart';
 
 // คลาสเก็บข้อมูลการกระจายน้ำหนัก
 class WeightDistribution {
@@ -52,15 +53,13 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   List<WeightRecord> _allWeightRecords = [];
   bool _isLoading = true;
   
+  
 
   // สถิติทั่วไป
   int _totalCattle = 0;
   double _averageWeight = 0.0;
   double _maxWeight = 0.0;
   Cattle? _heaviestCattle;
-  
-  // ข้อมูลการเติบโต
-  Map<String, double> _averageGrowthRates = {};
   
   // ข้อมูลสำหรับกราฟแยกตามสายพันธุ์
   Map<String, List<double>> _weightByBreed = {};
@@ -82,7 +81,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length:2, vsync: this);
     
     // สร้าง StreamController และ Stream
     _dataChangeStreamController = StreamController<bool>.broadcast();
@@ -100,11 +99,23 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     // เพิ่มการรีเฟรชเมื่อหน้านี้กลับมาอยู่ foreground
     _lifecycleObserver = AppLifecycleObserver(onResume: () {
       if (mounted) {
+        print("App resumed - รีเฟรชข้อมูลใน ReportsScreen");
         _loadData();
       }
     });
     WidgetsBinding.instance.addObserver(_lifecycleObserver!);
   }
+
+  // @override
+  // void didChangeDependencies() {
+  //   super.didChangeDependencies();
+  //   // *** แก้ไข: ใช้ routeObserver จาก main.dart ***
+  //   final route = ModalRoute.of(context);
+  //   if (route is PageRoute) {
+  //     routeObserver.subscribe(this, route);
+  //     print("ReportsScreen ลงทะเบียน RouteObserver แล้ว");
+  //   }
+  // }
   
   @override
   void dispose() {
@@ -133,11 +144,10 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
 
   // ตั้งค่าการฟังการเปลี่ยนแปลงจากฐานข้อมูล
   void _setupDatabaseListener() {
-    // เพิ่ม listener สำหรับการเปลี่ยนแปลงข้อมูล
     _dbHelper.addChangeListener(() {
-      // เมื่อมีการเปลี่ยนแปลงข้อมูล ให้แจ้งเตือน Stream
-      if (!_dataChangeStreamController.isClosed) {
-        _dataChangeStreamController.add(true);
+      print("ReportsScreen ได้รับการแจ้งเตือนการเปลี่ยนแปลงข้อมูล");
+      if (mounted) {
+        _loadData(); // รีเฟรชทันที
       }
     });
   }
@@ -258,6 +268,9 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
         _isLoading = true;
       });
       
+      // เรียก debug function ก่อน
+      await _debugGrowthRateData();
+      
       // โหลดข้อมูลโคทั้งหมด
       final cattleList = await _dbHelper.getAllCattle();
       
@@ -296,29 +309,59 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       }
       double averageWeight = _totalCattle > 0 ? totalWeight / _totalCattle : 0.0;
       
-      // คำนวณอัตราการเติบโตเฉลี่ยตามสายพันธุ์
+      // *** แก้ไข: คำนวณอัตราการเติบโตเฉลี่ยตามสายพันธุ์ ***
       Map<String, List<double>> growthRatesByBreed = {};
       
       for (var cattle in cattleList) {
-        final records = await _dbHelper.getWeightRecordsByCattleId(cattle.id);
-        
-        if (records.length >= 2) {
-          // เรียงตามวันที่
-          records.sort((a, b) => a.date.compareTo(b.date));
+        try {
+          final records = uniqueRecords.where((r) => r.cattleId == cattle.id).toList();
           
-          // คำนวณอัตราการเติบโตต่อวัน (กก./วัน)
-          final firstRecord = records.first;
-          final lastRecord = records.last;
-          final daysDifference = lastRecord.date.difference(firstRecord.date).inDays;
+          print('กำลังประมวลผลโค: ${cattle.name} (${records.length} บันทึก)');
           
-          if (daysDifference > 0) {
-            final growthRate = (lastRecord.weight - firstRecord.weight) / daysDifference.toDouble();
+          // ตรวจสอบว่ามีข้อมูลเพียงพอ (อย่างน้อย 2 รายการ)
+          if (records.length >= 2) {
+            // เรียงตามวันที่จากเก่าไปใหม่
+            records.sort((a, b) => a.date.compareTo(b.date));
             
-            if (!growthRatesByBreed.containsKey(cattle.breed)) {
-              growthRatesByBreed[cattle.breed] = [];
+            // ใช้บันทึกแรกและสุดท้าย
+            final firstRecord = records.first;
+            final lastRecord = records.last;
+            
+            print('  บันทึกแรก: ${firstRecord.weight} กก. (${DateFormat('dd/MM/yyyy').format(firstRecord.date)})');
+            print('  บันทึกล่าสุด: ${lastRecord.weight} กก. (${DateFormat('dd/MM/yyyy').format(lastRecord.date)})');
+            
+            // ตรวจสอบว่าวันที่ไม่เหมือนกัน
+            final daysDifference = lastRecord.date.difference(firstRecord.date).inDays;
+            print('  จำนวนวัน: $daysDifference');
+            
+            if (daysDifference > 0) {
+              final weightDifference = lastRecord.weight - firstRecord.weight;
+              
+              // คำนวณอัตราการเติบโตต่อวัน (กก./วัน)
+              final growthRate = weightDifference / daysDifference.toDouble();
+              
+              print('  การเปลี่ยนแปลงน้ำหนัก: ${weightDifference.toStringAsFixed(2)} กก.');
+              print('  อัตราการเติบโต: ${growthRate.toStringAsFixed(3)} กก./วัน');
+              
+              // ตรวจสอบว่าค่าไม่ผิดปกติ (ขยายช่วงให้กว้างขึ้น)
+              if (growthRate >= -3.0 && growthRate <= 10.0) { // ขยายช่วงจาก -2.0, 5.0
+                if (!growthRatesByBreed.containsKey(cattle.breed)) {
+                  growthRatesByBreed[cattle.breed] = [];
+                }
+                growthRatesByBreed[cattle.breed]!.add(growthRate);
+                
+                print('  ✓ เพิ่มในข้อมูลการเจริญเติบโต');
+              } else {
+                print('  ✗ ข้ามโค ${cattle.name}: อัตราการเติบโตผิดปกติ ${growthRate.toStringAsFixed(3)} กก./วัน');
+              }
+            } else {
+              print('  ✗ ข้ามโค ${cattle.name}: วันที่บันทึกเหมือนกัน');
             }
-            growthRatesByBreed[cattle.breed]!.add(growthRate);
+          } else {
+            print('  ✗ ข้ามโค ${cattle.name}: มีข้อมูลการชั่งน้ำหนักไม่เพียงพอ (${records.length} รายการ)');
           }
+        } catch (e) {
+          print('เกิดข้อผิดพลาดในการคำนวณอัตราการเติบโตของโค ${cattle.name}: $e');
         }
       }
       
@@ -327,9 +370,15 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       growthRatesByBreed.forEach((breed, rates) {
         if (rates.isNotEmpty) {
           double sum = rates.reduce((a, b) => a + b);
-          averageGrowthRates[breed] = sum / rates.length;
+          double average = sum / rates.length;
+          averageGrowthRates[breed] = average;
+          
+          print('สายพันธุ์ $breed: อัตราการเติบโตเฉลี่ย ${average.toStringAsFixed(3)} กก./วัน (จากข้อมูล ${rates.length} ตัว)');
         }
       });
+      
+      // แสดงข้อมูลสุดท้าย
+      print('ผลลัพธ์สุดท้าย - averageGrowthRates: $averageGrowthRates');
       
       // สร้างข้อมูลน้ำหนักตามสายพันธุ์
       Map<String, List<double>> weightByBreed = {};
@@ -351,12 +400,14 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           _maxWeight = maxWeight;
           _heaviestCattle = heaviestCattle;
           _averageWeight = averageWeight;
-          _averageGrowthRates = averageGrowthRates;
           _weightByBreed = weightByBreed;
           _weightDistribution = weightDistribution;
           _weightComparisonData = weightComparisonData;
           _isLoading = false;
         });
+        
+        print('โหลดข้อมูลเสร็จสิ้น: ${cattleList.length} ตัว, อัตราการเติบโต ${averageGrowthRates.length} สายพันธุ์');
+        
       }
     } catch (e) {
       print('เกิดข้อผิดพลาดในการโหลดข้อมูล: $e');
@@ -450,7 +501,6 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           tabs: [
             Tab(text: 'ภาพรวม'),
             Tab(text: 'น้ำหนักตามสายพันธุ์'),
-            Tab(text: 'การเจริญเติบโต'),
           ],
         ),
       ),
@@ -471,12 +521,11 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                       children: [
                         _buildOverviewTab(),
                         _buildWeightByBreedTab(),
-                        _buildGrowthRateTab(),
                       ],
                     ),
                     // เพิ่ม Positioned เพื่อวาง FAB ให้สูงขึ้น
                     Positioned(
-                      bottom: 80, // เพิ่มระยะห่างจากด้านล่าง ให้พ้นจากปุ่มนำทาง
+                      bottom: 80,
                       right: 16,
                       child: FloatingActionButton(
                         onPressed: () => _showExportOptions(),
@@ -488,6 +537,107 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                   ],
                 ),
     );
+  }
+
+  Future<void> _createTestData() async {
+    print('=== สร้างข้อมูลทดสอบ ===');
+    
+    try {
+      // ค้นหาโคที่มีอยู่
+      final cattleList = await _dbHelper.getAllCattle();
+      
+      if (cattleList.isNotEmpty) {
+        final testCattle = cattleList.first;
+        final now = DateTime.now();
+        
+        // สร้างบันทึกน้ำหนักทดสอบ 2 รายการ
+        final record1 = WeightRecord(
+          recordId: '',
+          cattleId: testCattle.id,
+          weight: 300.0,
+          imagePath: 'test_path_1.jpg',
+          date: now.subtract(Duration(days: 60)), // 60 วันที่แล้ว
+          notes: 'บันทึกทดสอบ 1',
+        );
+        
+        final record2 = WeightRecord(
+          recordId: '',
+          cattleId: testCattle.id,
+          weight: 350.0,
+          imagePath: 'test_path_2.jpg',
+          date: now.subtract(Duration(days: 30)), // 30 วันที่แล้ว
+          notes: 'บันทึกทดสอบ 2',
+        );
+        
+        await _dbHelper.insertWeightRecord(record1);
+        await _dbHelper.insertWeightRecord(record2);
+        
+        print('สร้างข้อมูลทดสอบสำเร็จ:');
+        print('- โค: ${testCattle.name}');
+        print('- บันทึก 1: 300 กก. (60 วันที่แล้ว)');
+        print('- บันทึก 2: 350 กก. (30 วันที่แล้ว)');
+        print('- อัตราการเติบโต: ${(350-300)/30} = ${((350-300)/30).toStringAsFixed(3)} กก./วัน');
+        
+      } else {
+        print('ไม่พบข้อมูลโค ไม่สามารถสร้างข้อมูลทดสอบได้');
+      }
+      
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการสร้างข้อมูลทดสอบ: $e');
+    }
+    
+    print('=== จบการสร้างข้อมูลทดสอบ ===\n');
+  }
+
+  Future<void> _checkDatabaseDirectly() async {
+    print('=== ตรวจสอบฐานข้อมูลโดยตรง ===');
+    
+    try {
+      final db = await _dbHelper.database;
+      
+      // ตรวจสอบตาราง cattle
+      final cattleCount = await db.rawQuery('SELECT COUNT(*) as count FROM cattle');
+      print('จำนวนโคในฐานข้อมูล: ${cattleCount.first['count']}');
+      
+      final cattleData = await db.rawQuery('SELECT * FROM cattle');
+      for (var cattle in cattleData) {
+        print('โค: ${cattle['name']} (${cattle['breed']}) - น้ำหนัก: ${cattle['estimated_weight']} กก.');
+      }
+      
+      // ตรวจสอบตาราง weight_records
+      final recordCount = await db.rawQuery('SELECT COUNT(*) as count FROM weight_records');
+      print('จำนวนบันทึกน้ำหนักในฐานข้อมูล: ${recordCount.first['count']}');
+      
+      final recordData = await db.rawQuery('''
+        SELECT wr.*, c.name as cattle_name 
+        FROM weight_records wr 
+        LEFT JOIN cattle c ON wr.cattle_id = c.id 
+        ORDER BY wr.date DESC
+      ''');
+      
+      for (var record in recordData) {
+        print('บันทึก: ${record['cattle_name']} - ${record['weight']} กก. (${record['date']})');
+      }
+      
+      // ตรวจสอบการจับคู่ข้อมูล
+      final joinData = await db.rawQuery('''
+        SELECT c.name, c.breed, COUNT(wr.record_id) as record_count
+        FROM cattle c 
+        LEFT JOIN weight_records wr ON c.id = wr.cattle_id 
+        GROUP BY c.id, c.name, c.breed
+        ORDER BY record_count DESC
+      ''');
+      
+      print('\nสรุปจำนวนบันทึกต่อโค:');
+      for (var data in joinData) {
+        print('${data['name']} (${data['breed']}): ${data['record_count']} บันทึก');
+      }
+      
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการตรวจสอบฐานข้อมูล: $e');
+    }
+    
+    print('=== จบการตรวจสอบฐานข้อมูล ===\n');
   }
 
   // สร้างคอลัมน์ข้อมูลการเปรียบเทียบ
@@ -1092,99 +1242,76 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     );
   }
   
-  // แท็บการเจริญเติบโต
-  Widget _buildGrowthRateTab() {
-    if (_averageGrowthRates.isEmpty) {
-      return Center(
-        child: Text('ไม่มีข้อมูลเพียงพอสำหรับการวิเคราะห์การเจริญเติบโต\nต้องมีการบันทึกน้ำหนักอย่างน้อย 2 ครั้งสำหรับโคแต่ละตัว', 
-          style: TextStyle(fontSize: 16, color: AppTheme.textSecondaryColor),
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
-    
-    return SingleChildScrollView(
-      padding: EdgeInsets.only(
-      left: 16, 
-      right: 16, 
-      top: 16, 
-      bottom: 120,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          DetailCard(
-            title: 'อัตราการเจริญเติบโตเฉลี่ย',
-            children: [
-              SizedBox(
-                height: 300,
-                child: _buildGrowthRateChart(),
+  
+
+  
+
+  Widget _buildNoGrowthDataView() {
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.trending_up,
+              size: 80,
+              color: Colors.grey[400],
+            ),
+            SizedBox(height: 24),
+            Text(
+              'ไม่มีข้อมูลการเจริญเติบโต',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textSecondaryColor,
               ),
-              SizedBox(height: 20),
-              ..._averageGrowthRates.entries.map((entry) {
-                return Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Row(
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'ต้องมีการบันทึกน้ำหนักอย่างน้อย 2 ครั้ง\nสำหรับโคแต่ละตัวในแต่ละสายพันธุ์',
+              style: TextStyle(
+                fontSize: 16,
+                color: AppTheme.textSecondaryColor,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 24),
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Column(
+                children: [
+                  Row(
                     children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: _getColorForBreed(entry.key),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
+                      Icon(Icons.info_outline, color: Colors.blue),
                       SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          entry.key,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
                       Text(
-                        '${entry.value.toStringAsFixed(3)} กก./วัน',
+                        'คำแนะนำ',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
+                          color: Colors.blue[800],
                         ),
                       ),
                     ],
                   ),
-                );
-              }).toList(),
-              Container(
-                margin: EdgeInsets.only(top: 16),
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.blue),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'อัตราการเจริญเติบโตคำนวณจากน้ำหนักที่เพิ่มขึ้นต่อวัน (กก./วัน) โดยใช้ข้อมูลจากการบันทึกน้ำหนักครั้งแรกและครั้งล่าสุด',
-                        style: TextStyle(color: Colors.blue[800]),
-                      ),
+                  SizedBox(height: 8),
+                  Text(
+                    '• บันทึกน้ำหนักโคอย่างสม่ำเสมอ\n• ควรบันทึกอย่างน้อยเดือนละครั้ง\n• การบันทึกที่ห่างกัน 2-4 สัปดาห์จะให้ข้อมูลที่แม่นยำ',
+                    style: TextStyle(
+                      color: Colors.blue[800],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          SizedBox(height: 20),
-          DetailCard(
-            title: 'โคที่มีการเจริญเติบโตดีที่สุด',
-            children: [
-              _buildTopGrowthCattleList(),
-            ],
-          ),
-          SizedBox(height: 80),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1298,39 +1425,93 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       }
     );
   }
-  
-  // สร้างกราฟอัตราการเติบโตตามสายพันธุ์
-  Widget _buildGrowthRateChart() {
-    // แปลงข้อมูลให้อยู่ในรูปแบบที่ต้องการ
-    List<Map<String, dynamic>> chartData = _getGrowthRateData();
+
+  Future<void> _debugGrowthRateData() async {
+    print('=== เริ่มตรวจสอบข้อมูลการเจริญเติบโต ===');
     
-    // เพิ่มข้อมูลสีตามสายพันธุ์
-    for (var data in chartData) {
-      data['color'] = _getColorForBreed(data['label'] as String);
-    }
-    
-    // ใช้ LayoutBuilder เพื่อให้ปรับขนาดตามพื้นที่ที่มี
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Container(
-          width: constraints.maxWidth,
-          height: 300,
-          child: CustomPaint(
-            painter: BarChartPainter(
-              data: chartData,
-              maxValue: _getMaxGrowthRate() * 1.2,
-              barColor: Colors.green,
-              showValues: true,
-              valueFormat: (value) => '${value.toStringAsFixed(3)} กก./วัน',
-              useCustomColors: true,
-              isSmallScreen: constraints.maxWidth < 400,
-            ),
-            size: Size(constraints.maxWidth, 300),
-          ),
-        );
+    try {
+      // 1. ตรวจสอบข้อมูลโคทั้งหมด
+      final cattleList = await _dbHelper.getAllCattle();
+      print('จำนวนโคทั้งหมด: ${cattleList.length}');
+      
+      for (var cattle in cattleList) {
+        print('โค: ${cattle.name} (${cattle.breed}) - น้ำหนัก: ${cattle.estimatedWeight} กก.');
       }
-    );
+      
+      // 2. ตรวจสอบข้อมูล WeightRecord ทั้งหมด
+      List<WeightRecord> allRecords = [];
+      for (var cattle in cattleList) {
+        final records = await _dbHelper.getWeightRecordsByCattleId(cattle.id);
+        allRecords.addAll(records);
+        print('โค ${cattle.name}: มี ${records.length} บันทึกน้ำหนัก');
+        
+        for (var record in records) {
+          print('  - วันที่: ${DateFormat('dd/MM/yyyy HH:mm').format(record.date)}, น้ำหนัก: ${record.weight} กก.');
+        }
+      }
+      
+      print('จำนวนบันทึกน้ำหนักทั้งหมด: ${allRecords.length}');
+      
+      // 3. ตรวจสอบการคำนวณอัตราการเติบโต
+      Map<String, List<double>> growthRatesByBreed = {};
+      
+      for (var cattle in cattleList) {
+        final records = allRecords.where((r) => r.cattleId == cattle.id).toList();
+        
+        if (records.length >= 2) {
+          records.sort((a, b) => a.date.compareTo(b.date));
+          
+          final firstRecord = records.first;
+          final lastRecord = records.last;
+          final daysDifference = lastRecord.date.difference(firstRecord.date).inDays;
+          
+          print('โค ${cattle.name}:');
+          print('  - บันทึกแรก: ${firstRecord.weight} กก. (${DateFormat('dd/MM/yyyy').format(firstRecord.date)})');
+          print('  - บันทึกล่าสุด: ${lastRecord.weight} กก. (${DateFormat('dd/MM/yyyy').format(lastRecord.date)})');
+          print('  - จำนวนวัน: $daysDifference วัน');
+          
+          if (daysDifference > 0) {
+            final weightDifference = lastRecord.weight - firstRecord.weight;
+            final growthRate = weightDifference / daysDifference.toDouble();
+            
+            print('  - การเปลี่ยนแปลงน้ำหนัก: ${weightDifference.toStringAsFixed(2)} กก.');
+            print('  - อัตราการเติบโต: ${growthRate.toStringAsFixed(3)} กก./วัน');
+            
+            if (growthRate >= -2.0 && growthRate <= 5.0) {
+              if (!growthRatesByBreed.containsKey(cattle.breed)) {
+                growthRatesByBreed[cattle.breed] = [];
+              }
+              growthRatesByBreed[cattle.breed]!.add(growthRate);
+              print('  - ✓ เพิ่มในข้อมูลการเจริญเติบโต');
+            } else {
+              print('  - ✗ ข้ามเนื่องจากอัตราการเติบโตผิดปกติ');
+            }
+          } else {
+            print('  - ✗ ข้ามเนื่องจากวันที่เท่ากัน');
+          }
+        } else {
+          print('โค ${cattle.name}: ข้ามเนื่องจากมีข้อมูลไม่เพียงพอ (${records.length} บันทึก)');
+        }
+      }
+      
+      // 4. แสดงผลสรุป
+      print('\n=== สรุปข้อมูลการเจริญเติบโตตามสายพันธุ์ ===');
+      growthRatesByBreed.forEach((breed, rates) {
+        if (rates.isNotEmpty) {
+          double sum = rates.reduce((a, b) => a + b);
+          double average = sum / rates.length;
+          print('$breed: เฉลี่ย ${average.toStringAsFixed(3)} กก./วัน (จาก ${rates.length} ตัว)');
+        }
+      });
+      
+      print('=== จบการตรวจสอบ ===\n');
+      
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการตรวจสอบข้อมูล: $e');
+    }
   }
+  
+  
   
   // สร้างกราฟประสิทธิภาพ
   // Widget _buildEfficiencyChart() {
@@ -1365,22 +1546,6 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     return result;
   }
   
-  // ข้อมูลอัตราการเติบโตตามสายพันธุ์
-  List<Map<String, dynamic>> _getGrowthRateData() {
-    List<Map<String, dynamic>> result = [];
-    
-    _averageGrowthRates.forEach((breed, rate) {
-      result.add({
-        'label': breed,
-        'value': rate,
-      });
-    });
-    
-    // เรียงลำดับจากมากไปน้อย
-    result.sort((a, b) => (b['value'] as double).compareTo(a['value'] as double));
-    
-    return result;
-  }
   
   // ข้อมูลประสิทธิภาพตามสายพันธุ์
   // List<Map<String, dynamic>> _getBreedEfficiencyData() {
@@ -1449,11 +1614,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     return maxWeight > 0 ? maxWeight : 1.0;
   }
   
-  // หาค่าอัตราการเติบโตสูงสุด
-  double _getMaxGrowthRate() {
-    if (_averageGrowthRates.isEmpty) return 1.0;
-    return _averageGrowthRates.values.reduce((a, b) => a > b ? a : b);
-  }
+  
   
   // นับจำนวนโคในช่วงน้ำหนัก
   int _countInRange(List<double> weights, double min, double max) {
@@ -1537,167 +1698,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   //   );
   // }
   
-  // สร้างรายการโคที่เติบโตดีที่สุด
-  Widget _buildTopGrowthCattleList() {
-    // สร้างข้อมูลอัตราการเติบโตของโคแต่ละตัว
-    List<Map<String, dynamic>> cattleGrowthData = [];
-    
-    for (var cattle in _cattleList) {
-      try {
-        // ดึงบันทึกน้ำหนักของโคตัวนี้
-        final records = _allWeightRecords.where((record) => record.cattleId == cattle.id).toList();
-        
-        if (records.length >= 2) {
-          // เรียงตามวันที่
-          records.sort((a, b) => a.date.compareTo(b.date));
-          
-          // คำนวณอัตราการเติบโต
-          final firstRecord = records.first;
-          final lastRecord = records.last;
-          final daysDifference = lastRecord.date.difference(firstRecord.date).inDays;
-          
-          if (daysDifference > 0) {
-            final growthRate = (lastRecord.weight - firstRecord.weight) / daysDifference;
-            
-            cattleGrowthData.add({
-              'cattle': cattle,
-              'growthRate': growthRate,
-              'startWeight': firstRecord.weight,
-              'endWeight': lastRecord.weight,
-              'days': daysDifference,
-            });
-          }
-        }
-      } catch (e) {
-        print('เกิดข้อผิดพลาดในการคำนวณอัตราการเติบโตของโค ${cattle.name}: $e');
-      }
-    }
-    
-    // เรียงตามอัตราการเติบโตจากมากไปน้อย
-    cattleGrowthData.sort((a, b) => (b['growthRate'] as double).compareTo(a['growthRate'] as double));
-    
-    // แสดงเฉพาะ 5 อันดับแรก
-    final topGrowth = cattleGrowthData.take(5).toList();
-    
-    if (topGrowth.isEmpty) {
-      return Container(
-        padding: EdgeInsets.all(16),
-        alignment: Alignment.center,
-        child: Text(
-          'ไม่มีข้อมูลเพียงพอสำหรับการวิเคราะห์',
-          style: TextStyle(
-            color: AppTheme.textSecondaryColor,
-          ),
-        ),
-      );
-    }
-    
-    return Column(
-      children: [
-        ...topGrowth.asMap().entries.map((entry) {
-          final index = entry.key;
-          final data = entry.value;
-          final cattle = data['cattle'] as Cattle;
-          final growthRate = data['growthRate'] as double;
-          final startWeight = data['startWeight'] as double;
-          final endWeight = data['endWeight'] as double;
-          final days = data['days'] as int;
-          
-          return Container(
-            margin: EdgeInsets.only(bottom: 12),
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: index == 0 ? Colors.amber.withOpacity(0.1) : Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: index == 0 ? Colors.amber : Colors.grey.withOpacity(0.3),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: index == 0
-                        ? Colors.amber
-                        : index == 1
-                            ? Colors.grey[400]
-                            : index == 2
-                                ? Colors.brown[300]
-                                : AppTheme.primaryColor.withOpacity(0.3),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${index + 1}',
-                      style: TextStyle(
-                        color: index == 0 ? Colors.white : Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        cattle.name,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        'สายพันธุ์: ${cattle.breed}',
-                        style: TextStyle(
-                          color: AppTheme.textSecondaryColor,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.trending_up,
-                          color: Colors.green,
-                          size: 16,
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          '${growthRate.toStringAsFixed(3)} กก./วัน',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '${startWeight.toStringAsFixed(1)} → ${endWeight.toStringAsFixed(1)} กก. (${days} วัน)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textSecondaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        }).toList(),
-      ],
-    );
-  }
+  
   // สร้างข้อแนะนำสำหรับการปรับปรุง
   // Widget _buildBreedingAdvice() {
   //   // ข้อมูลประสิทธิภาพของสายพันธุ์
